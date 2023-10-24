@@ -1,3 +1,3 @@
-mod lib {
-	mod io;
+pub mod lib {
+	pub mod io;
 }

@@ -1,6 +1,9 @@
 use std::{sync::{Arc, Barrier, mpsc::{self, Receiver}}, io::{self, Read, Seek}, fs::File, thread::{JoinHandle, self}};
 
-const DEFAULT_BLOCK_SIZE: u64 = 1_000_000_000; // 1 GB
+const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
+
+// TODO: Test adding more blocks loaded at once - although theoretically, I'm not sure I see how that'd help
+// TODO: Test how long the main thread waits on the io_thread
 
 /// The messages sent by the io_thread in the IoManager
 enum IoChannelMsg {
@@ -12,9 +15,13 @@ enum IoChannelMsg {
 
 pub struct IoManager {
 	block_size: u64,
-	_buffer: Arc<Vec<u8>>,
+	_buffer: Arc<Vec<u8>>, // Owns the block data, keeps it alive until IoManager is dropped
 	blocks: [&'static mut [u8]; 2],
-	block_idxs: [Option<u64>; 2],
+	/// The index of the current block within the file
+	curr_block_idx: u64,
+	/// Either 0 or 1, the index into self.blocks that is the current block (basically imagine self.blocks as a ring buffer then this is the index of the first element)
+	curr_block_buffer: u8,
+	curr_block_bytes_read: u64,
 	file: Option<File>,
 	file_len: Option<u64>,
 	io_thread: Box<Option<JoinHandle<()>>>,
@@ -36,7 +43,9 @@ impl IoManager {
 			block_size,
 			_buffer: buffer,
 			blocks,
-			block_idxs: [None; 2],
+			curr_block_idx: 0,
+			curr_block_buffer: 0,
+			curr_block_bytes_read: 0,
 			file: None,
 			file_len: None,
 			io_thread: Box::new(None),
@@ -70,9 +79,13 @@ impl IoManager {
 		// If file is open, claim it (take it out of the option)
 		if let Some(mut file) = self.file.take() {
 			// Cast the reference to a "thin pointer" to a usize
+			let block_0_addr = self.blocks[0] as *mut [u8] as *mut () as usize;
 			let block_1_addr = self.blocks[1] as *mut [u8] as *mut () as usize;
 
 			let block_size = self.block_size;
+
+			// We want to read into the unoccupied buffer (that curr_block_buffer is not currently pointing at)
+			let mut curr_block_buffer_iot = (self.curr_block_buffer + 1) % 2;
 
 			// Synchronisation stuff
 			let io_barrier_iot = Arc::clone(&self.io_thread_barrier);
@@ -81,13 +94,23 @@ impl IoManager {
 
 			// Spawns a thread that repeatedly reads the next block of the file and then waits
 			self.io_thread = Box::new(Some(thread::spawn(move || {
+				let block_0 = unsafe {
+					std::slice::from_raw_parts_mut(block_0_addr as *mut u8, block_size as usize)
+				};
 				let block_1 = unsafe {
 					std::slice::from_raw_parts_mut(block_1_addr as *mut u8, block_size as usize)
 				};
 
 				// Simply a loop that reads a block into the second block, and waits at the barrier. Skips waiting and returns if error or at EOF
 				loop {
-					let num_bytes = file.read(block_1).unwrap(); // BUG: unwrap
+					let num_bytes = if curr_block_buffer_iot == 0 {
+						file.read(block_0).unwrap() // BUG: unwrap
+					} else {
+						file.read(block_1).unwrap() // BUG: unwrap
+					};
+
+					curr_block_buffer_iot = (curr_block_buffer_iot + 1) % 2;
+
 					if num_bytes == 0 {
 						io_sender.send(IoChannelMsg::Eof).unwrap(); // BUG: unwrap
 						break;
@@ -119,11 +142,16 @@ impl IoManager {
 
 		match msg {
 			IoChannelMsg::Block(bytes_read) => {
+				self.curr_block_bytes_read = bytes_read;
+				self.curr_block_buffer = (self.curr_block_buffer + 1) % 2;
+
 				// Pattern matching on arrays allows multiple mutable references to different array indices
-				let [ref mut block_0, ref mut block_1] = self.blocks;
+				// let [ref mut block_0, ref mut block_1] = self.blocks;
 
 				// memcpy bytes_read bytes from block1 to block0
-				block_0.copy_from_slice(&(*block_1)[0..bytes_read as usize]);
+				// (&mut (block_0)[0..bytes_read as usize]).copy_from_slice(&(*block_1)[0..bytes_read as usize]);
+
+				self.curr_block_idx += 1; // NOTE: If the functionality of this struct changes this might become incorrect
 
 				// Let the thread continue
 				self.io_thread_barrier.wait();
@@ -138,22 +166,29 @@ impl IoManager {
 	///
 	/// If this method is called before `load_next_block`, the contents of the current block will be zeroed
 	pub fn with_current_block<F>(&self, mut f: F) where F: FnMut(&[u8]) {
-		f(self.blocks[0])
+		f(&(self.blocks[self.curr_block_buffer as usize])[0..self.curr_block_bytes_read as usize])
 	}
 
-	// pub fn block_idx_of(&self, addr: u64) -> u64 {
-	// 	addr / self.block_size
-	// }
+	/// Returns the progress through the file as a number between 0.0 and 1.0.
+	/// Specifically, returns the last loaded address divided by the file length
+	pub fn progress(&self) -> f32 {
+		if let Some(file_len) = self.file_len {
+			(((self.curr_block_idx - 1) * self.block_size + self.curr_block_bytes_read) as f32) / (file_len as f32)
+		} else {
+			0.0
+		}
+	}
 
-	// pub fn addr_of(&self, block_idx: u64) -> u64 {
-	// 	block_idx * self.block_size
-	// }
+	/// Returns the length of the opened file in bytes, or none if a file hasn't been opened
+	pub fn file_len(&self) -> Option<u64> {
+		self.file_len
+	}
 }
 
 impl Drop for IoManager {
 	fn drop(&mut self) {
 		// Wait for io thread to finish
-		self.io_thread.take().map(|jh| jh.join().unwrap()); // NOTE: Unsafe unwrap but not sure how else to handle it - make sure io_thread doesn't panic
+		self.io_thread.take().map(|jh| jh.join().unwrap()); // NOTE: Unsafe unwrap but not sure how else to handle it - make sure io_thread doesn't panic? But how to handle errors in io_thread?
 	}
 }
 
