@@ -7,11 +7,9 @@ fn main() {
 
 	let file_path = "test_data/urandom_file.dat";
 
-	let mut ioman = IoManager::new(None);
+	let mut ioman = IoManager::new();
 
 	ioman.open(file_path).expect("Failed to open file");
-
-	ioman.start().expect("Failed to start IoManager");
 
 	loop {
 		if let Ok(eof) = ioman.load_next_block() {
