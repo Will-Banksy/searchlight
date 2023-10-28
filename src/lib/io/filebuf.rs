@@ -1,14 +1,19 @@
-use std::{fs::File, io::{self, Seek, Read}, sync::{Arc, Barrier, mpsc::{Receiver, self}}, thread::{self, JoinHandle}};
+use std::{fs::File, io::Read, sync::{Arc, Barrier, mpsc::{Receiver, self, Sender}}, thread::{self, JoinHandle}};
 
 use super::IoBackend;
 
-const NUM_BLOCKS: usize = 2;
+const NUM_BLOCKS: usize = 2; // NOTE: Changing this will require changing the threading/synchronisation strategy
 
-enum PreloaderMsg {
+enum FromPreloaderMsg {
 	/// Indicates a block was read from the file, of the length contained in this message
 	BlockLoaded(usize),
 	/// Reached end of file. No more data was read
 	Eof
+}
+
+enum ToPreloaderMsg {
+	ReadBlock,
+	Terminate,
 }
 
 pub struct IoFileBuf {
@@ -21,7 +26,8 @@ pub struct IoFileBuf {
 
 	plt_handle: Option<Box<JoinHandle<()>>>,
 	plt_barrier: Arc<Barrier>,
-	plt_reciever: Option<Arc<Receiver<PreloaderMsg>>>
+	plt_receiver: Option<Arc<Receiver<FromPreloaderMsg>>>,
+	plt_sender: Option<Arc<Sender<ToPreloaderMsg>>>
 }
 
 impl IoFileBuf {
@@ -45,7 +51,8 @@ impl IoFileBuf {
 			preload_block_ref: 0,
 			plt_handle: None,
 			plt_barrier: Arc::new(Barrier::new(2)),
-			plt_reciever: None,
+			plt_receiver: None,
+			plt_sender: None
 		})
 	}
 }
@@ -66,8 +73,39 @@ impl IoBackend for IoFileBuf {
 	// 	todo!()
 	// }
 
-	fn next(&mut self) -> Result<&[u8], String> { // BUG: This could potentially cause errors - Rust thinks that the returned slice is 'static but it only lives as long as this struct which can't be represented
-		todo!() // TODO
+	/// If multithreading, then await a message from the preloader thread saying a block is loaded, and then return  t
+	fn next(&mut self) -> Result<Option<&[u8]>, String> { // BUG: This could potentially cause errors - Rust thinks that the returned slice is 'static but it only lives as long as this struct which can't be represented
+		let multithreading = self.plt_handle.is_some();
+
+		if multithreading {
+			if let Some(plt_reciever) = &self.plt_receiver {
+				let msg = plt_reciever.recv().map_err(|e| e.to_string())?;
+				match msg {
+					FromPreloaderMsg::BlockLoaded(num_bytes) => {
+						let curr_slice = &self.block_refs[self.curr_block_ref][0..num_bytes];
+
+						self.curr_block_ref += 1;
+
+						// Inform the preloader thread that a block has been read
+						// BUG: By the time the slice is returned, it may be (and in fact probably will be) being overwritten
+						// since we are letting the preloader thread continue before the slice has been finished with
+						// TODO: To fix, see the todo in io::IoBackend to do with modifying this function to take a function
+						if let Some(plt_sender) = &self.plt_sender {
+							plt_sender.send(ToPreloaderMsg::ReadBlock).unwrap(); // BUG: unwrap
+						}
+
+						Ok(Some(curr_slice))
+					},
+					FromPreloaderMsg::Eof => {
+						Ok(None)
+					}
+				}
+			} else {
+				panic!("[ERROR]: Invalid state")
+			}
+		} else {
+			todo!()
+		}
 
 		// Most of this line is transforming each variant of the Result from file.read
 		// self.file.read(block).map(|n| n as u64).map_err(|e| e.to_string())
@@ -83,10 +121,12 @@ impl IoBackend for IoFileBuf {
 		let mut file = self.file.take().ok_or("[ERROR] Preload thread already started")?;
 		let barrier = Arc::clone(&self.plt_barrier);
 
-		// Make channel
-		let (sender, reciever) = mpsc::channel();
+		// Make channels
+		let (frmplt_sender, frmplt_receiver) = mpsc::channel();
+		let (toplt_sender, toplt_receiver) = mpsc::channel();
 
-		self.plt_reciever = Some(Arc::new(reciever));
+		self.plt_receiver = Some(Arc::new(frmplt_receiver));
+		self.plt_sender = Some(Arc::new(toplt_sender));
 
 		// Start the preloader thread
 		self.plt_handle = Some(Box::new(thread::spawn(move || {
@@ -97,55 +137,39 @@ impl IoBackend for IoFileBuf {
 					let next_preload_block_ref = (preload_block_ref + 1) % NUM_BLOCKS;
 					let bytes_read = file.read(block_refs[next_preload_block_ref]).unwrap(); // BUG: unwrap
 					if bytes_read == 0 {
-						sender.send(PreloaderMsg::Eof).unwrap(); // BUG: unwrap
+						frmplt_sender.send(FromPreloaderMsg::Eof).unwrap(); // BUG: unwrap
 						break;
 					}
 
-					sender.send(PreloaderMsg::BlockLoaded(bytes_read)).unwrap(); // BUG: unwrap
+					frmplt_sender.send(FromPreloaderMsg::BlockLoaded(bytes_read)).unwrap(); // BUG: unwrap
 
 					preload_block_ref = next_preload_block_ref;
 				}
 
-				barrier.wait();
-				curr_block_ref += 1;
+				let msg = toplt_receiver.recv().unwrap(); // BUG: unwrap
+				match msg {
+					ToPreloaderMsg::ReadBlock => {
+						curr_block_ref += 1;
+					},
+					ToPreloaderMsg::Terminate => {
+						break;
+					}
+				}
 			}
 		})));
 
 		Ok(())
-		// Spawns a thread that repeatedly reads the next block of the file and then waits
-		// self.io_thread = Box::new(Some(thread::spawn(move || {
-		// 	let block_0 = unsafe {
-		// 		std::slice::from_raw_parts_mut(block_0_addr as *mut u8, block_size as usize)
-		// 	};
-		// 	let block_1 = unsafe {
-		// 		std::slice::from_raw_parts_mut(block_1_addr as *mut u8, block_size as usize)
-		// 	};
-
-		// 	// Simply a loop that reads a block into the second block, and waits at the barrier. Skips waiting and returns if error or at EOF
-		// 	loop {
-		// 		let num_bytes = if curr_block_buffer_iot == 0 {
-		// 			file.read(block_0).unwrap() // BUG: unwrap
-		// 		} else {
-		// 			file.read(block_1).unwrap() // BUG: unwrap
-		// 		};
-
-		// 		curr_block_buffer_iot = (curr_block_buffer_iot + 1) % 2;
-
-		// 		if num_bytes == 0 {
-		// 			io_sender.send(IoChannelMsg::Eof).unwrap(); // BUG: unwrap
-		// 			break;
-		// 		}
-
-		// 		io_sender.send(IoChannelMsg::Block(num_bytes as u64)).unwrap(); // BUG: unwrap
-		// 		io_barrier_iot.wait();
-		// 	}
-		// })));
 	}
 }
 
 impl Drop for IoFileBuf {
 	fn drop(&mut self) {
-		// Wait for preloader thread to finish // TODO: Ideally need a way to control the preloader thread
-		self.plt_handle.take().map(|jh| jh.join().unwrap()); // NOTE: Unsafe unwrap but not sure how else to handle it - make sure plt_thread doesn't panic? But how to handle errors in plt_thread?
+		// Ask the preloader thread to terminate
+		if let Some(plt_sender) = &self.plt_sender {
+			plt_sender.send(ToPreloaderMsg::Terminate).unwrap() // BUG: unwrap
+		}
+
+		// Wait for preloader thread to finish
+		self.plt_handle.take().map(|jh| jh.join().unwrap()); // BUG: unwrap
 	}
 }

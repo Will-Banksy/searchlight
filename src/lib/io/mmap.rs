@@ -1,4 +1,4 @@
-use std::{fs::File, io::{Seek, self}};
+use std::fs::File;
 
 use memmap::{Mmap, MmapOptions};
 
@@ -12,7 +12,7 @@ pub struct IoMmap {
 }
 
 impl IoMmap {
-	pub fn new(mut file: File, file_len: u64, block_size: u64) -> Result<Self, String> {
+	pub fn new(file: File, file_len: u64, block_size: u64) -> Result<Self, String> {
 		let mmap = unsafe { MmapOptions::new().map(&file).map_err(|e| e.to_string())? };
 
 		Ok(IoMmap {
@@ -29,13 +29,17 @@ impl IoBackend for IoMmap {
 		self.file_len as u64
 	}
 
-	fn next(&mut self) -> Result<&[u8], String> {
+	fn next(&mut self) -> Result<Option<&[u8]>, String> {
 		let start = self.cursor;
 		let end = if self.cursor + self.block_size < self.file_len {
 			self.cursor + self.block_size
 		} else {
 			self.file_len
 		};
-		Ok(&self.mmap[start..end])
+		if start == end {
+			Ok(None)
+		} else {
+			Ok(Some(&self.mmap[start..end]))
+		}
 	}
 }

@@ -1,19 +1,20 @@
 mod mmap;
 mod filebuf;
 
-use std::{sync::{Arc, Barrier, mpsc::{self, Receiver}}, io::{self, Read, Seek}, fs::File, thread::{JoinHandle, self}};
+use std::{io::{self, Seek}, fs::File};
 
 const DEFAULT_BLOCK_SIZE: u64 = 8192; // Got from BUFSIZ in stdio.h // 1 * 1024 * 1024 * 1024; // 1 GiB
 
 // TODO: Test adding more blocks loaded at once - although theoretically, I'm not sure I see how that'd help
 // TODO: Test how long the main thread waits on the io_thread
 // https://stackoverflow.com/a/39196499/11009247
+// NOTE: Tbf... Do I just use memory mapping without bothering to have a pluggable infrastructure? It'd lowkey be a lot easier to architect
 
 trait IoBackend {
 	/// Returns information about the opened file - Currently just the length of it
 	fn file_info(&self) -> u64;
 	/// Read the next block of file data, returning the data as a slice, or returning an error if one occurred
-	fn next(&mut self) -> Result<&[u8], String>;
+	fn next(&mut self) -> Result<Option<&[u8]>, String>; // TODO: Change this to take a function, like IoManager::with_current_block
 	/// Optionally, this method should start a thread for preloading
 	fn start_preload_thread(&mut self) -> Result<(), String> {
 		Ok(())
