@@ -1,20 +1,23 @@
-mod mmap;
-mod filebuf;
+pub mod mmap;
+pub mod filebuf;
 
 use std::{io::{self, Seek}, fs::File};
 
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+
 const DEFAULT_BLOCK_SIZE: u64 = 8192; // Got from BUFSIZ in stdio.h // 1 * 1024 * 1024 * 1024; // 1 GiB
 
-// TODO: Test adding more blocks loaded at once - although theoretically, I'm not sure I see how that'd help
 // TODO: Test how long the main thread waits on the io_thread
 // https://stackoverflow.com/a/39196499/11009247
-// NOTE: Tbf... Do I just use memory mapping without bothering to have a pluggable infrastructure? It'd lowkey be a lot easier to architect
 
-trait IoBackend {
+pub trait IoBackend {
 	/// Returns information about the opened file - Currently just the length of it
 	fn file_info(&self) -> u64;
-	/// Read the next block of file data, returning the data as a slice, or returning an error if one occurred
-	fn next(&mut self) -> Result<Option<&[u8]>, String>; // TODO: Change this to take a function, like IoManager::with_current_block
+	/// Read the next block of file data, calling the closure with an the read block as a slice, None if reached the EOF, or Err if an error occurred
+	///
+	/// This function uses a closure to allow the implementor to have more control over the lifetime and usage of the slice
+	fn next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String>; // Needs to take a boxed function to make it object safe
 	/// Optionally, this method should start a thread for preloading
 	fn start_preload_thread(&mut self) -> Result<(), String> {
 		Ok(())
@@ -36,8 +39,33 @@ impl IoManager {
 		IoManager { block_size, file_len: None, io_backend: None }
 	}
 
+	/// Open a file with an automatically selected backend based on the file size: For sizes below 16KiB, it
+	/// will use the `IoFileBuf` backend, for bigger sizes it'll use the `IoMmap` backend
 	pub fn open(&mut self, path: &str) -> Result<(), String> {
+		// If the file size is more than 16KiB, use the memory mapped IoBackend
+		// Otherwise, use the filebuf IoBackend
+		// NOTE: Since it's only 16KiB... is it worth agonising over getting the filebuf one perfect?
+		let io_backend_cons = |file, file_len, block_size| {
+			Ok(if file_len > (16 * 1024) { // https://stackoverflow.com/a/39196499/11009247
+				println!("[INFO]: Using I/O backend: IoMmap");
+				mmap::IoMmap::new(file, file_len, block_size).map(|io_mmap| Box::new(io_mmap))? as Box<dyn IoBackend>
+			} else {
+				println!("[INFO]: Using I/O backend: IoFileBuf");
+				filebuf::IoFileBuf::new(file, file_len, block_size).map(|io_filebuf| Box::new(io_filebuf))?
+			})
+		};
+
+		self.open_with(path, io_backend_cons)
+	}
+
+	/// Open a file with a specific io backend, constructed using the passed-in closure with arguments: open file, file length, block size
+	pub fn open_with<F>(&mut self, path: &str, backend_cons: F) -> Result<(), String> where F: FnOnce(File, u64, u64) -> Result<Box<dyn IoBackend>, String> {
 		let mut file = File::open(path).map_err(|e| e.to_string())?;
+
+		#[cfg(unix)]
+		unsafe {
+			libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+		}
 
 		// Get the length of the file, by querying metadata and as a last resort seeking to the end of the file and getting the offset
 		let file_len = {
@@ -50,20 +78,12 @@ impl IoManager {
 			}
 		};
 
-		// If the file size is more than 16KiB, use the memory mapped IoBackend
-		// Otherwise, use the filebuf IoBackend
-		// NOTE: Since it's only 16KiB... is it worth agonising over getting the filebuf one perfect?
-		self.io_backend = {
-			Some(if file_len > (16 * 1024) { // https://stackoverflow.com/a/39196499/11009247
-				mmap::IoMmap::new(file, file_len, self.block_size).map(|io_mmap| Box::new(io_mmap))?
-			} else {
-				filebuf::IoFileBuf::new(file, file_len, self.block_size).map(|io_filebuf| Box::new(io_filebuf))?
-			})
-		};
+		// Get the io backend by calling the provided closure
+		self.io_backend = Some(backend_cons(file, file_len, self.block_size)?);
 
 		// Just start the preload thread immediately
 		if let Some(ref mut io_backend) = self.io_backend {
-			io_backend.start_preload_thread().unwrap_or(eprintln!("[WARN]: Preloading thread failed to start")); // Just ignoring errors for starting the preload thread
+			io_backend.start_preload_thread().unwrap_or_else(|_| eprintln!("[WARN]: Preloading thread failed to start")); // Just ignoring errors for starting the preload thread
 		}
 
 		self.file_len = Some(file_len);
@@ -71,54 +91,32 @@ impl IoManager {
 		Ok(())
 	}
 
-	/// Waits for the io_thread to finish reading the next block into a secondary buffer, and copies it to the primary buffer,
-	/// allowing the io_thread to continue reading the next block
+	/// Waits for the next block to be loaded by the backend, then calls the provided closure with the block slice, or None if
+	/// the EOF is reached
 	///
-	/// Returns an error if there was an error communicating with the io_thread, otherwise a bool that is true if EOF is reached,
-	/// false otherwise
-	///
-	/// Also returns an error if this method is called before `start`
-	pub fn load_next_block(&mut self) -> Result<bool, String> {
-		todo!() // TODO
-		// let io_reciever = (self.io_thread_chreciever.as_mut()).ok_or("IoManager not started yet")?;
+	/// Returns an Err if an error occurred in the backend or the backend hasn't been initialised (i.e. a file hasn't been opened),
+	/// otherwise returns the return value of `f`
+	pub fn with_next_block<'a, F, R>(&mut self, f: F) -> Result<R, String> where F: FnOnce(Option<&[u8]>) -> R + 'a {
+		if let Some(ref mut io_backend) = self.io_backend {
+			let mut r: Option<R> = None;
 
-		// // Await a message
-		// let msg = io_reciever.recv().map_err(|e| format!("Error recieving message from io_thread: {}", e.to_string()))?;
+			// Call the backend's next function, letting the caller of this function handle it, and extract the return value of the provided function
+			io_backend.next(Box::new(|next| {
+				r = Some(f(next))
+			}))?;
 
-		// match msg {
-		// 	IoChannelMsg::Block(bytes_read) => {
-		// 		self.curr_block_bytes_read = bytes_read;
-		// 		self.curr_block_buffer = (self.curr_block_buffer + 1) % 2;
-
-		// 		// Pattern matching on arrays allows multiple mutable references to different array indices
-		// 		// let [ref mut block_0, ref mut block_1] = self.blocks;
-
-		// 		// memcpy bytes_read bytes from block1 to block0
-		// 		// (&mut (block_0)[0..bytes_read as usize]).copy_from_slice(&(*block_1)[0..bytes_read as usize]);
-
-		// 		self.curr_block_idx += 1; // NOTE: If the functionality of this struct changes this might become incorrect
-
-		// 		// Let the thread continue
-		// 		self.io_thread_barrier.wait();
-
-		// 		Ok(false)
-		// 	},
-		// 	IoChannelMsg::Eof => Ok(true)
-		// }
-	}
-
-	/// Calls a function with a reference to the current block as an argument
-	///
-	/// If this method is called before `load_next_block`, the contents of the current block will be zeroed
-	pub fn with_current_block<F>(&self, mut f: F) where F: FnMut(&[u8]) {
-		todo!() // TODO
-		// f(&(self.blocks[self.curr_block_buffer as usize])[0..self.curr_block_bytes_read as usize])
+			// Invalid state should not occur, since `f` should only not be called when there is an error,
+			// and execution won't reach here if there is an error
+			Ok(r.ok_or_else(|| panic!("[ERROR]: Invalid state")).unwrap())
+		} else {
+			Err("[ERROR]: Backend uninitialised (is a file open?)".to_string())
+		}
 	}
 
 	/// Returns the progress through the file as a number between 0.0 and 1.0.
 	/// Specifically, returns the last loaded address divided by the file length
 	pub fn progress(&self) -> f32 {
-		todo!() // TODO
+		todo!() // TODO: This will require either logic in IoManager or an impl in IoBackend (tradeoffs?)
 		// if let Some(file_len) = self.file_len {
 		// 	(((self.curr_block_idx - 1) * self.block_size + self.curr_block_bytes_read) as f32) / (file_len as f32)
 		// } else {
@@ -130,30 +128,62 @@ impl IoManager {
 	pub fn file_len(&self) -> Option<u64> {
 		self.file_len
 	}
+
+	/// Returns the block size
+	pub fn block_size(&self) -> u64 {
+		self.block_size
+	}
 }
 
-#[test]
 #[cfg(test)]
-fn test_io_manager() {
-	let file_path = "Cargo.toml";
+mod test {
+    use super::{IoManager, filebuf, mmap};
 
-	let mut ioman = IoManager::new_with(10);
+	#[test]
+	fn test_io_manager_filebuf() {
+		let mut ioman = IoManager::new_with(10);
 
-	ioman.open(file_path).expect("Failed to open Cargo.toml");
+		ioman.open_with("Cargo.toml", |file, file_len, block_size| {
+			Ok(filebuf::IoFileBuf::new(file, file_len, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
+		}).expect("Failed to open Cargo.toml");
 
-	let mut sb = String::new();
+		test_io_manager(ioman, include_str!("../../Cargo.toml"))
+	}
 
-	loop {
-		if let Ok(eof) = ioman.load_next_block() {
+	#[test]
+	fn test_io_manager_mmap() {
+		let mut ioman = IoManager::new_with(10);
+
+		ioman.open_with("Cargo.toml", |file, file_len, block_size| {
+			Ok(mmap::IoMmap::new(file, file_len, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
+		}).expect("Failed to open Cargo.toml");
+
+		test_io_manager(ioman, include_str!("../../Cargo.toml"))
+	}
+
+	#[cfg(test)]
+	fn test_io_manager(mut ioman: IoManager, test_str: &str) {
+		let mut sb = String::new();
+
+		loop {
+			let eof = ioman.with_next_block(|next| {
+				match next {
+					Some(block) => {
+						sb.push_str(std::str::from_utf8(block).unwrap());
+						false
+					},
+					None => {
+						true
+					}
+				}
+			}).unwrap();
+
 			if eof {
 				break;
 			}
 		}
 
-		ioman.with_current_block(|block| {
-			sb.push_str(std::str::from_utf8(block).unwrap());
-		});
+		assert_eq!(sb, test_str)
 	}
-
-	assert_eq!(sb, include_str!("../../Cargo.toml"))
 }
+

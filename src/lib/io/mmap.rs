@@ -1,10 +1,11 @@
-use std::fs::File;
+use std::{fs::File, os::fd::AsRawFd};
 
 use memmap::{Mmap, MmapOptions};
 
 use super::IoBackend;
 
 pub struct IoMmap {
+	file: File,
 	file_len: usize,
 	mmap: Mmap,
 	cursor: usize,
@@ -16,6 +17,7 @@ impl IoMmap {
 		let mmap = unsafe { MmapOptions::new().map(&file).map_err(|e| e.to_string())? };
 
 		Ok(IoMmap {
+			file,
 			file_len: file_len as usize,
 			mmap,
 			cursor: 0,
@@ -29,17 +31,29 @@ impl IoBackend for IoMmap {
 		self.file_len as u64
 	}
 
-	fn next(&mut self) -> Result<Option<&[u8]>, String> {
+	fn next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String> {
 		let start = self.cursor;
 		let end = if self.cursor + self.block_size < self.file_len {
 			self.cursor + self.block_size
 		} else {
 			self.file_len
 		};
-		if start == end {
-			Ok(None)
+		let ret = if start == end {
+			Ok(f(None))
 		} else {
-			Ok(Some(&self.mmap[start..end]))
+			Ok(f(Some(&self.mmap[start..end])))
+		};
+		self.cursor = end;
+		ret
+	}
+}
+
+impl Drop for IoMmap {
+	fn drop(&mut self) {
+		// NOTE: Left in for benchmarking
+		#[cfg(unix)]
+		unsafe {
+			libc::posix_fadvise(self.file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
 		}
 	}
 }
