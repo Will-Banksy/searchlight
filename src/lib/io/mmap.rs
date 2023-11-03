@@ -16,6 +16,11 @@ impl IoMmap {
 	pub fn new(file: File, file_len: u64, block_size: u64) -> Result<Self, String> {
 		let mmap = unsafe { MmapOptions::new().map(&file).map_err(|e| e.to_string())? };
 
+		#[cfg(unix)]
+		unsafe {
+			libc::madvise(mmap.as_ptr() as *mut libc::c_void, mmap.len(), libc::MADV_SEQUENTIAL);
+		}
+
 		Ok(IoMmap {
 			file,
 			file_len: file_len as usize,

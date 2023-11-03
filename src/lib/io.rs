@@ -1,12 +1,14 @@
 pub mod mmap;
 pub mod filebuf;
+#[cfg(unix)]
+pub mod io_uring;
 
 use std::{io::{self, Seek}, fs::File};
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 
-const DEFAULT_BLOCK_SIZE: u64 = 8192; // Got from BUFSIZ in stdio.h // 1 * 1024 * 1024 * 1024; // 1 GiB
+const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
 
 // TODO: Test how long the main thread waits on the io_thread
 // https://stackoverflow.com/a/39196499/11009247
@@ -68,15 +70,7 @@ impl IoManager {
 		}
 
 		// Get the length of the file, by querying metadata and as a last resort seeking to the end of the file and getting the offset
-		let file_len = {
-			if let Ok(metadata) = file.metadata() {
-				metadata.len()
-			} else {
-				let size = file.seek(io::SeekFrom::End(0)).map_err(|e| e.to_string())?;
-				file.seek(io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-				size
-			}
-		};
+		let file_len = file_len(&mut file)?;
 
 		// Get the io backend by calling the provided closure
 		self.io_backend = Some(backend_cons(file, file_len, self.block_size)?);
@@ -132,6 +126,16 @@ impl IoManager {
 	/// Returns the block size
 	pub fn block_size(&self) -> u64 {
 		self.block_size
+	}
+}
+
+pub fn file_len(file: &mut File) -> Result<u64, String> {
+	if let Ok(metadata) = file.metadata() {
+		Ok(metadata.len())
+	} else {
+		let size = file.seek(io::SeekFrom::End(0)).map_err(|e| e.to_string())?;
+		file.seek(io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+		Ok(size)
 	}
 }
 
