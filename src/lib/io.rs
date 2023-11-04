@@ -20,10 +20,6 @@ pub trait IoBackend {
 	///
 	/// This function uses a closure to allow the implementor to have more control over the lifetime and usage of the slice
 	fn next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String>; // Needs to take a boxed function to make it object safe
-	/// Optionally, this method should start a thread for preloading
-	fn start_preload_thread(&mut self) -> Result<(), String> {
-		Ok(())
-	}
 }
 
 pub struct BackendInfo {
@@ -52,7 +48,6 @@ impl IoManager {
 	pub fn open(&mut self, path: &str) -> Result<(), String> {
 		// If the file size is more than 16KiB, use the memory mapped IoBackend
 		// Otherwise, use the filebuf IoBackend
-		// NOTE: Since it's only 16KiB... is it worth agonising over getting the filebuf one perfect?
 		let io_backend_cons = |file_path, req_block_size| {
 			// Unfortunately need to open the file to determine it's size... Drop it immediately though
 			let file_len = {
@@ -60,8 +55,9 @@ impl IoManager {
 				file_len(&mut file)?
 			};
 
-			// Since already got the file length, the backend may want it too before opening the file
-			Ok(if file_len > (16 * 1024) { // https://stackoverflow.com/a/39196499/11009247
+			// Mmap improves file read speed compared to sequential read when over 16KiB of file size: https://stackoverflow.com/a/39196499/11009247
+			// The filebuf backend seems to be *slightly* faster than the io_uring or direct backends at the moment too, while it's difficult to benchmark the mmap backend
+			Ok(if file_len > (16 * 1024) {
 				println!("[INFO]: Using I/O backend: IoMmap");
 				mmap::IoMmap::new(file_path, req_block_size).map(|io_mmap| Box::new(io_mmap))? as Box<dyn IoBackend>
 			} else {
@@ -77,11 +73,6 @@ impl IoManager {
 	pub fn open_with<'a, F>(&mut self, path: &'a str, backend_cons: F) -> Result<(), String> where F: FnOnce(&'a str, u64) -> Result<Box<dyn IoBackend>, String> {
 		// Get the io backend by calling the provided closure
 		self.io_backend = Some(backend_cons(path, self.req_block_size)?);
-
-		// Just start the preload thread immediately
-		if let Some(ref mut io_backend) = self.io_backend {
-			io_backend.start_preload_thread().unwrap_or_else(|_| eprintln!("[WARN]: Preloading thread failed to start")); // Just ignoring errors for starting the preload thread
-		}
 
 		Ok(())
 	}

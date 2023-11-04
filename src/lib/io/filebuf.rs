@@ -74,7 +74,7 @@ impl<'a> IoFileBuf<'a> {
 			).chunks_exact_mut(block_size as usize).collect::<Vec<&mut [u8]>>().try_into().unwrap() // Should never error
 		};
 
-		Ok(IoFileBuf {
+		let mut fb = IoFileBuf {
 			file: Some(file),
 			file_len,
 			buf,
@@ -84,66 +84,11 @@ impl<'a> IoFileBuf<'a> {
 			plt_handle: None,
 			plt_receiver: None,
 			plt_sender: None
-		})
-	}
-}
+		};
 
-impl IoBackend for IoFileBuf<'_> {
-	fn file_info(&self) -> BackendInfo {
-		BackendInfo {
-			file_len: self.file_len,
-			block_size: self.block_refs[0].len() as u64
-		}
-	}
+		fb.start_preload_thread()?;
 
-	/// If multithreading, then await a message from the preloader thread saying a block is loaded,
-	/// and then call `f` with the loaded block (passing None if the end of the file is reached),
-	/// and then inform the preloader thread it can overwrite that block.
-	///
-	/// If singlethreading, then read the next block of the file and call `f` with that or None.
-	///
-	/// An error will be returned if one occurs. Note that an error can still be returned even if
-	/// `f` was called successfully with the next block or None.
-	fn next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
-		let multithreading = self.plt_handle.is_some();
-
-		if multithreading {
-			if let Some(plt_reciever) = &self.plt_receiver {
-				let msg = plt_reciever.recv().map_err(|e| e.to_string());
-				match msg {
-					Ok(FromPreloaderMsg::BlockLoaded(num_bytes)) => {
-						// Get reference to the current slice that is being modified
-						let curr_slice = &self.block_refs[self.curr_block_ref][0..num_bytes];
-
-						self.curr_block_ref = (self.curr_block_ref + 1) % NUM_BLOCKS;
-
-						// Let the caller process the slice
-						f(Some(curr_slice));
-
-						// Inform the preloader thread that a block has been read
-						if let Some(plt_sender) = &self.plt_sender {
-							if let Err(e) = plt_sender.send(ToPreloaderMsg::ReadBlock) {
-								Err(format!("[ERROR]: Failed to send a message to the preloader thread: {}", e.to_string()))
-							} else {
-								Ok(())
-							}
-						} else {
-							panic!("[ERROR]: Invalid state")
-						}
-					},
-					Ok(FromPreloaderMsg::Eof) => {
-						Ok(f(None))
-					},
-					Err(e) => {
-						Err(format!("[ERROR]: Failed to receive message from preloader thread: {}", e.to_string()))
-					}
-				}
-			} else {
-				panic!("[ERROR]: Invalid state")
-			}
-		} else {
-			todo!() // TODO: Single threading implementation... Necessary?
-		}
+		Ok(fb)
 	}
 
 	fn start_preload_thread(&mut self) -> Result<(), String> {
@@ -204,6 +149,59 @@ impl IoBackend for IoFileBuf<'_> {
 		})));
 
 		Ok(())
+	}
+}
+
+impl IoBackend for IoFileBuf<'_> {
+	fn file_info(&self) -> BackendInfo {
+		BackendInfo {
+			file_len: self.file_len,
+			block_size: self.block_refs[0].len() as u64
+		}
+	}
+
+	/// If multithreading, then await a message from the preloader thread saying a block is loaded,
+	/// and then call `f` with the loaded block (passing None if the end of the file is reached),
+	/// and then inform the preloader thread it can overwrite that block.
+	///
+	/// If singlethreading, then read the next block of the file and call `f` with that or None.
+	///
+	/// An error will be returned if one occurs. Note that an error can still be returned even if
+	/// `f` was called successfully with the next block or None.
+	fn next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
+		if let Some(plt_reciever) = &self.plt_receiver {
+			let msg = plt_reciever.recv().map_err(|e| e.to_string());
+			match msg {
+				Ok(FromPreloaderMsg::BlockLoaded(num_bytes)) => {
+					// Get reference to the current slice that is being modified
+					let curr_slice = &self.block_refs[self.curr_block_ref][0..num_bytes];
+
+					self.curr_block_ref = (self.curr_block_ref + 1) % NUM_BLOCKS;
+
+					// Let the caller process the slice
+					f(Some(curr_slice));
+
+					// Inform the preloader thread that a block has been read
+					if let Some(plt_sender) = &self.plt_sender {
+						if let Err(e) = plt_sender.send(ToPreloaderMsg::ReadBlock) {
+							Err(format!("[ERROR]: Failed to send a message to the preloader thread: {}", e.to_string()))
+						} else {
+							Ok(())
+						}
+					} else {
+						panic!("[ERROR]: Invalid state")
+					}
+				},
+				Ok(FromPreloaderMsg::Eof) => {
+					Ok(f(None))
+				},
+				Err(e) => {
+					Err(format!("[ERROR]: Failed to receive message from preloader thread: {}", e.to_string()))
+				}
+			}
+		} else {
+			panic!("[ERROR]: Invalid state")
+		}
 	}
 }
 
