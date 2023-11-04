@@ -1,9 +1,12 @@
-use std::{fs::File, io::Read, sync::{Arc, mpsc::{Receiver, self, Sender}}, thread::{self, JoinHandle}, os::fd::AsRawFd};
+use std::{fs::{File, OpenOptions}, io::Read, sync::{Arc, mpsc::{Receiver, self, Sender}}, thread::{self, JoinHandle}, os::{fd::AsRawFd, unix::prelude::OpenOptionsExt}, alloc::Layout, slice, alloc};
 
-use super::IoBackend;
+use crate::lib::io::DEFAULT_ALIGNMENT;
+
+use super::{IoBackend, file_len, BackendInfo};
 
 const NUM_BLOCKS: usize = 3; // Controls how many blocks are loaded at once
 
+/// Messages sent from the preloader thread
 enum FromPreloaderMsg {
 	/// Indicates a block was read from the file, of the length contained in this message
 	BlockLoaded(usize),
@@ -11,16 +14,18 @@ enum FromPreloaderMsg {
 	Eof
 }
 
+/// Messages sent to the preloader thread
 enum ToPreloaderMsg {
 	ReadBlock,
 	Terminate,
 }
 
-pub struct IoFileBuf {
+pub struct IoFileBuf<'a> {
 	file: Option<File>,
 	file_len: u64,
-	_buffer: Arc<Vec<u8>>,
-	block_refs: [&'static mut [u8]; NUM_BLOCKS],
+	buf: &'a mut [u8],
+	mem_layout: Layout,
+	block_refs: [&'a mut [u8]; NUM_BLOCKS],
 	curr_block_ref: usize,
 
 	plt_handle: Option<Box<JoinHandle<()>>>,
@@ -28,22 +33,52 @@ pub struct IoFileBuf {
 	plt_sender: Option<Arc<Sender<ToPreloaderMsg>>>
 }
 
-impl IoFileBuf {
+impl<'a> IoFileBuf<'a> {
 	/// Returns an instance of self, having opened the file, or returns an error if one occurred
-	pub fn new(file: File, file_len: u64, block_size: u64) -> Result<Self, String> {
-		// Allocate the backing buffer
-		let buffer = Arc::new(vec![0; block_size as usize * NUM_BLOCKS]);
+	pub fn new(file_path: &str, block_size: u64) -> Result<Self, String> {
+		let mut open_opts = OpenOptions::new();
+		open_opts.read(true);
 
-		// Cast a reference to the buffer to a pointer to it, get mutable references to it's chunks and collect them
-		let buffer_raw = Arc::as_ptr(&buffer) as *mut Vec<u8>;
+		// If on linux, use the O_DIRECT flag to avoid caching and copying since we're doing our own buffering
+		#[cfg(unix)]
+		{
+			open_opts.custom_flags(libc::O_DIRECT);
+		}
+
+		// Open the file and get it's length
+		let mut file = open_opts.open(file_path).map_err(|e| e.to_string())?;
+		let file_len = file_len(&mut file)?;
+
+		#[cfg(unix)]
+		unsafe {
+			libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+		}
+
+		// Need aligned memory of a size a multiple of the alignment for O_DIRECT - round upwards
+		// Allocate 3 times the rounded block size
+		let block_size = (block_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
+		assert_eq!(block_size % DEFAULT_ALIGNMENT as u64, 0);
+		let buf_size = (block_size as usize) * NUM_BLOCKS;
+		let mem_layout = Layout::from_size_align(buf_size, DEFAULT_ALIGNMENT).map_err(|e| e.to_string())?;
+		let buf = unsafe {
+			slice::from_raw_parts_mut(
+				alloc::alloc(mem_layout),
+				buf_size
+			)
+		};
+
+		// Get mutable references to the allocated buffer's blocks/chunks and collect them into an array
 		let block_refs = unsafe {
-			(&mut *buffer_raw).chunks_exact_mut(block_size as usize).collect::<Vec<&mut [u8]>>().try_into().unwrap() // Should never error
+			(
+				slice::from_raw_parts_mut(buf as *mut [u8] as *mut u8, buf.len())
+			).chunks_exact_mut(block_size as usize).collect::<Vec<&mut [u8]>>().try_into().unwrap() // Should never error
 		};
 
 		Ok(IoFileBuf {
 			file: Some(file),
 			file_len,
-			_buffer: buffer,
+			buf,
+			mem_layout,
 			block_refs,
 			curr_block_ref: 0,
 			plt_handle: None,
@@ -53,21 +88,13 @@ impl IoFileBuf {
 	}
 }
 
-impl IoBackend for IoFileBuf {
-	fn file_info(&self) -> u64 {
-		self.file_len
+impl IoBackend for IoFileBuf<'_> {
+	fn file_info(&self) -> BackendInfo {
+		BackendInfo {
+			file_len: self.file_len,
+			block_size: self.block_refs[0].len() as u64
+		}
 	}
-
-	// fn preload_next(&mut self) -> Result<(), String> {
-	// 	// if (self.preload_block_ref + 1) % NUM_BLOCKS == self.curr_block_ref {
-	// 	// 	Ok(())
-	// 	// } else {
-	// 	// 	let preload_block_ref = (self.preload_block_ref + 1) % NUM_BLOCKS;
-	// 	// 	let bytes_read = self.file.read(self.block_refs[preload_block_ref]).map_err(|e| e.to_string())?;
-	// 	// 	Ok(())
-	// 	// }
-	// 	todo!()
-	// }
 
 	/// If multithreading, then await a message from the preloader thread saying a block is loaded,
 	/// and then call `f` with the loaded block (passing None if the end of the file is reached),
@@ -77,7 +104,7 @@ impl IoBackend for IoFileBuf {
 	///
 	/// An error will be returned if one occurs. Note that an error can still be returned even if
 	/// `f` was called successfully with the next block or None.
-	fn next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String> {
+	fn next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
 		let multithreading = self.plt_handle.is_some();
 
 		if multithreading {
@@ -180,7 +207,7 @@ impl IoBackend for IoFileBuf {
 	}
 }
 
-impl Drop for IoFileBuf {
+impl Drop for IoFileBuf<'_> {
 	fn drop(&mut self) {
 		// Ask the preloader thread to terminate
 		if let Some(plt_sender) = &self.plt_sender {
@@ -189,6 +216,11 @@ impl Drop for IoFileBuf {
 
 		// Wait for preloader thread to finish
 		self.plt_handle.take().map(|jh| jh.join().unwrap()); // BUG: unwrap
+
+		// Deallocate the aligned memory
+		unsafe {
+			alloc::dealloc(self.buf.as_mut_ptr(), self.mem_layout);
+		}
 
 		// NOTE: Left in for benchmarking
 		#[cfg(unix)]
