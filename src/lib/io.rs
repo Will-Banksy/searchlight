@@ -7,7 +7,7 @@ pub mod direct;
 
 use std::{io::{self, Seek}, fs::File};
 
-const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
+pub const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
 pub const DEFAULT_ALIGNMENT: usize = 4096;
 
 // TODO: Test how long the main thread waits on the io_thread

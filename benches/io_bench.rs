@@ -1,5 +1,5 @@
 use criterion::{Criterion, black_box, criterion_main, criterion_group, Bencher, Throughput};
-use searchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct};
+use searchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE};
 
 criterion_group!(benches, criterion);
 criterion_main!(benches);
@@ -9,16 +9,12 @@ fn criterion(c: &mut Criterion) {
 	group.sample_size(10);
 	group.throughput(Throughput::Bytes(5_467_144_192));
 
-	for i in &[
-		1024,
-		1024 * 1024,
-		1024 * 1024 * 1024,
-	] {
-		group.bench_with_input("filebuf", i, bench_filebuf);
-		group.bench_with_input("mmap", i, bench_mmap);
-		group.bench_with_input("io_uring", i, bench_io_uring);
-		group.bench_with_input("direct", i, bench_direct);
-	}
+	let block_size = DEFAULT_BLOCK_SIZE;
+
+	group.bench_with_input("filebuf", &block_size, bench_filebuf);
+	group.bench_with_input("mmap", &block_size, bench_mmap);
+	group.bench_with_input("io_uring", &block_size, bench_io_uring);
+	group.bench_with_input("direct", &block_size, bench_direct);
 }
 
 fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
