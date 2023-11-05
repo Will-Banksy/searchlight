@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box, criterion_main, criterion_group, Bencher, Throughput};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_main, criterion_group, Bencher, Throughput};
 use searchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE};
 
 criterion_group!(benches, criterion);
@@ -82,13 +84,14 @@ fn bench_direct(b: &mut Bencher, block_size: &u64) {
 }
 
 fn bench_ioman(mut ioman: IoManager) {
-	let mut buf = vec![0; ioman.backend_info().unwrap().block_size as usize];
+	// let mut buf = vec![0; ioman.backend_info().unwrap().block_size as usize];
 
 	loop {
 		let eof = ioman.with_next_block(|block| {
 			match block {
 				Some(block) => {
-					buf[0..block.len()].copy_from_slice(black_box(block));
+					// buf[0..block.len()].copy_from_slice(black_box(block));
+					black_box(block);
 
 					false
 				},

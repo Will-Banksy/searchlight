@@ -10,9 +10,37 @@ SSD: WD Blue SN570 1TB
 
 Test results: 3508 MB/s
 
-## Last Benchmark
+## Searchlight Benchmarks
 
-Each benchmark is run 10 times - 10 samples. The results in the [] are the confidence interval upper and lower bounds, and in the middle, the best guess as to the time taken for each sample.
+Each benchmark is run 10 times - 10 samples. The results in the [] are the confidence interval upper and lower bounds, and in the middle, the best guess as to the time taken for each sample, as reported by criterion.
+
+See benches/io_bench.rs for the benchmark file.
+
+### No-op
+
+Each read block was simply passed through a black_box, not copied or processed in any way. These scores are closer to what you see on drive benchmarks - closer to the 3.5 GB/s that the used SSD is rated at, but not representative of real scenarios where you want to do processing on each block.
+
+The io/mmap benchmark is a significant outlier here - as no bytes are actually read from the loaded block, the kernel doesn't actually need to do any I/O operations, so it's super fast.
+
+io/filebuf
+- time:   [1.8220 s 1.8266 s 1.8311 s]
+- thrpt:  [2.7806 GiB/s 2.7876 GiB/s 2.7945 GiB/s]
+
+io/mmap
+- time:   [2.7183 µs 2.7619 µs 2.8084 µs]
+- thrpt:  [1813006 GiB/s 1843511 GiB/s 1873141 GiB/s]
+
+io/io_uring
+- time:   [1.8113 s 1.8782 s 1.9389 s]
+- thrpt:  [2.6260 GiB/s 2.7110 GiB/s 2.8111 GiB/s]
+
+io/direct
+- time:   [1.9234 s 1.9433 s 1.9661 s]
+- thrpt:  [2.5897 GiB/s 2.6201 GiB/s 2.6472 GiB/s]
+
+### Memcpy
+
+Each read block was memcpy'd into a buffer. These throughput scores are closer to what you'd expect when doing processing on each loaded block.
 
 The io/mmap benchmark is an outlier, as it seems to outperform the reported and FIO benchmarked read speed, which can be put down to caching. posix_fadvise was used to attempt to circumvent this, to no avail. The others weren't affected by this, as they use O_DIRECT.
 
@@ -31,3 +59,25 @@ io/io_uring
 io/direct
 - time:   [2.5214 s 2.5372 s 2.5521 s]
 - thrpt:  [1.9951 GiB/s 2.0068 GiB/s 2.0194 GiB/s]
+
+### Sequential Read
+
+Each read block was looped through, passing each byte through a black_box. These throughput scores, showing speeds slower than the memcpy benchmark, show that, at least on the tested-on system, that drive I/O is not a single bottleneck for operations slower than a sequential, single-threaded, non-SIMD read of the entire block. Memory copies are very fast in comparison, as there are many optimisations and tricks available to optimise them.
+
+The io/mmap benchmark here is faster than the rest, but within the drive read limit. It can be assumed this is due to caching, but it bottlenecked by the sequential read.
+
+io/filebuf
+- time:   [3.5759 s 3.6031 s 3.6402 s]
+- thrpt:  [1.3987 GiB/s 1.4131 GiB/s 1.4239 GiB/s]
+
+io/mmap
+- time:   [1.7763 s 1.7795 s 1.7830 s]
+- thrpt:  [2.8557 GiB/s 2.8612 GiB/s 2.8664 GiB/s]
+
+io/io_uring
+- time:   [3.4978 s 3.5224 s 3.5493 s]
+- thrpt:  [1.4345 GiB/s 1.4455 GiB/s 1.4557 GiB/s]
+
+io/direct
+- time:   [3.5381 s 3.5619 s 3.5868 s]
+- thrpt:  [1.4196 GiB/s 1.4295 GiB/s 1.4391 GiB/s]

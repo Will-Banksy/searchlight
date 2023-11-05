@@ -3,3 +3,7 @@
 # Searchlight
 
 TODO: Write README
+
+## Benchmarks
+
+See [Benchmarking.md](Benchmarking.md) for benchmarks.

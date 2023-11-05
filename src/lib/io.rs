@@ -2,7 +2,6 @@ pub mod mmap;
 pub mod filebuf;
 #[cfg(unix)]
 pub mod io_uring;
-#[cfg(unix)]
 pub mod direct;
 
 use std::{io::{self, Seek}, fs::File};
