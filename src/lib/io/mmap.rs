@@ -2,7 +2,7 @@ use std::{fs::File, os::fd::AsRawFd};
 
 use memmap::{Mmap, MmapOptions};
 
-use super::{IoBackend, file_len, BackendInfo};
+use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError};
 
 pub struct IoMmap {
 	file: File,
@@ -40,14 +40,17 @@ impl IoMmap {
 }
 
 impl IoBackend for IoMmap {
-	fn file_info(&self) -> BackendInfo {
+	fn backend_info(&self) -> BackendInfo {
 		BackendInfo {
 			file_len: self.file_len as u64,
-			block_size: self.block_size
+			block_size: self.block_size,
+			cursor: self.cursor
 		}
 	}
+}
 
-	fn read_next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String> {
+impl SeqIoBackend for IoMmap {
+	fn read_next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), BackendError> {
 		let start = self.cursor;
 		let end = if self.cursor + self.block_size < self.file_len {
 			self.cursor + self.block_size
@@ -61,6 +64,18 @@ impl IoBackend for IoMmap {
 		};
 		self.cursor = end;
 		ret
+	}
+}
+
+impl RandIoBackend for IoMmap {
+	fn read_region<'a>(&mut self, start: u64, end: u64, f: Box<dyn FnOnce(&[u8]) + 'a>) -> Result<(), BackendError> {
+		if end > self.file_len || start >= end {
+			return Err(BackendError::RegionOutsideFileBounds)
+		}
+
+		f(&self.mmap[start as usize..end as usize]);
+
+		Ok(())
 	}
 }
 

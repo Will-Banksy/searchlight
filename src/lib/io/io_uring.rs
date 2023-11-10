@@ -4,7 +4,7 @@ use rio::{Rio, Completion};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{IoBackend, file_len, BackendInfo};
+use super::{SeqIoBackend, file_len, BackendInfo, BackendError, IoBackend};
 
 // TODO: Test using a read queing strategy more similar to OpenForensics
 //     How I *think* file reading works in OpenForensics is that instead of queing a read for an entire chunk
@@ -82,17 +82,20 @@ pub fn req_next<'a, 'c>(uring: &'a mut IoUring<'a, 'c>) -> bool where 'a: 'c {
 }
 
 impl<'a, 'c> IoBackend for IoUring<'a, 'c> where 'a: 'c {
-	fn file_info(&self) -> BackendInfo {
+	fn backend_info(&self) -> BackendInfo {
 		BackendInfo {
 			file_len: self.file_len,
-			block_size: self.mem_layout.size() as u64
+			block_size: self.mem_layout.size() as u64,
+			cursor: self.cursor
 		}
 	}
+}
 
-	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
+impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
+	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), BackendError> {
 		// If there is a queued operation, await that
 		if let Some(completion) = self.prev_completion.take() {
-			let bytes_read = completion.wait().map_err(|e| e.to_string())?;
+			let bytes_read = completion.wait().map_err(|e| BackendError::IoError(e))?;
 
 			// Call f with the appropriate argument
 			if bytes_read == 0 {

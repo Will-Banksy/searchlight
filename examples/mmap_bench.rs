@@ -8,7 +8,7 @@ fn main() {
 
 	let mut ioman = IoManager::new();
 
-	ioman.open_with(file_path, |file_path, block_size| {
+	ioman.open_with_seq(file_path, |file_path, block_size| {
 		Ok(mmap::IoMmap::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 	}).expect("Failed to open test_data/io_bench.dat");
 

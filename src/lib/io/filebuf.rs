@@ -2,7 +2,7 @@ use std::{fs::{File, OpenOptions}, io::Read, sync::{Arc, mpsc::{Receiver, self, 
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{IoBackend, file_len, BackendInfo};
+use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, BackendError};
 
 const NUM_BLOCKS: usize = 3; // Controls how many blocks are loaded at once
 
@@ -27,6 +27,7 @@ pub struct IoFileBuf<'a> {
 	mem_layout: Layout,
 	block_refs: [&'a mut [u8]; NUM_BLOCKS],
 	curr_block_ref: usize,
+	cursor: u64,
 
 	plt_handle: Option<Box<JoinHandle<()>>>,
 	plt_receiver: Option<Arc<Receiver<FromPreloaderMsg>>>,
@@ -81,6 +82,7 @@ impl<'a> IoFileBuf<'a> {
 			mem_layout,
 			block_refs,
 			curr_block_ref: 0,
+			cursor: 0,
 			plt_handle: None,
 			plt_receiver: None,
 			plt_sender: None
@@ -153,13 +155,16 @@ impl<'a> IoFileBuf<'a> {
 }
 
 impl IoBackend for IoFileBuf<'_> {
-	fn file_info(&self) -> BackendInfo {
+	fn backend_info(&self) -> BackendInfo {
 		BackendInfo {
 			file_len: self.file_len,
-			block_size: self.block_refs[0].len() as u64
+			block_size: self.block_refs[0].len() as u64,
+			cursor: self.cursor,
 		}
 	}
+}
 
+impl SeqIoBackend for IoFileBuf<'_> {
 	/// If multithreading, then await a message from the preloader thread saying a block is loaded,
 	/// and then call `f` with the loaded block (passing None if the end of the file is reached),
 	/// and then inform the preloader thread it can overwrite that block.
@@ -168,7 +173,7 @@ impl IoBackend for IoFileBuf<'_> {
 	///
 	/// An error will be returned if one occurs. Note that an error can still be returned even if
 	/// `f` was called successfully with the next block or None.
-	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
+	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), BackendError> {
 		if let Some(plt_reciever) = &self.plt_receiver {
 			let msg = plt_reciever.recv().map_err(|e| e.to_string());
 			match msg {
@@ -178,13 +183,15 @@ impl IoBackend for IoFileBuf<'_> {
 
 					self.curr_block_ref = (self.curr_block_ref + 1) % NUM_BLOCKS;
 
+					self.cursor += num_bytes as u64;
+
 					// Let the caller process the slice
 					f(Some(curr_slice));
 
 					// Inform the preloader thread that a block has been read
 					if let Some(plt_sender) = &self.plt_sender {
 						if let Err(e) = plt_sender.send(ToPreloaderMsg::ReadBlock) {
-							Err(format!("[ERROR]: Failed to send a message to the preloader thread: {}", e.to_string()))
+							Err(BackendError::ThreadSendRecvError(format!("Failed to send a message to the preloader thread: {}", e.to_string())))
 						} else {
 							Ok(())
 						}
@@ -196,7 +203,7 @@ impl IoBackend for IoFileBuf<'_> {
 					Ok(f(None))
 				},
 				Err(e) => {
-					Err(format!("[ERROR]: Failed to receive message from preloader thread: {}", e.to_string()))
+					Err(BackendError::ThreadSendRecvError(format!("Failed to receive message from preloader thread: {}", e.to_string())))
 				}
 			}
 		} else {

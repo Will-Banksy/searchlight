@@ -1,14 +1,15 @@
-use std::{fs::{OpenOptions, File}, alloc::{self, Layout}, slice, os::{unix::prelude::OpenOptionsExt, fd::AsRawFd}, io::Read};
+use std::{fs::{OpenOptions, File}, alloc::{self, Layout}, slice, os::{unix::prelude::OpenOptionsExt, fd::AsRawFd}, io::{Read, Seek, SeekFrom}};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{IoBackend, file_len, BackendInfo};
+use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError};
 
 pub struct IoDirect<'a> {
 	buf: &'a mut [u8],
 	mem_layout: Layout,
 	file: File,
 	file_len: u64,
+	cursor: u64
 }
 
 impl<'a> IoDirect<'a> {
@@ -50,26 +51,54 @@ impl<'a> IoDirect<'a> {
 			mem_layout,
 			file,
 			file_len,
+			cursor: 0
 		})
 	}
 }
 
 impl<'a> IoBackend for IoDirect<'a> {
-	fn file_info(&self) -> BackendInfo {
+	fn backend_info(&self) -> BackendInfo {
 		BackendInfo {
 			file_len: self.file_len,
-			block_size: self.mem_layout.size() as u64
+			block_size: self.mem_layout.size() as u64,
+			cursor: self.cursor
 		}
 	}
+}
 
-	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
-		let bytes_read = self.file.read(self.buf).map_err(|e| e.to_string())?;
+impl<'a> SeqIoBackend for IoDirect<'a> {
+	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), BackendError> {
+		let bytes_read = self.file.read(self.buf).map_err(|e| BackendError::IoError(e))?;
 
 		if bytes_read == 0 {
 			f(None)
 		} else {
 			f(Some(&self.buf[0..bytes_read]));
+
+			self.cursor += bytes_read as u64;
 		}
+
+		Ok(())
+	}
+}
+
+impl<'a> RandIoBackend for IoDirect<'a> {
+	fn read_region<'b>(&mut self, start: u64, end: u64, f: Box<dyn FnOnce(&[u8]) + 'b>) -> Result<(), BackendError> {
+		if end > self.file_len || start >= end || (end - start) > self.buf.len() as u64 {
+			return Err(BackendError::RegionOutsideFileBounds)
+		}
+		if end == start {
+			return Err(BackendError::ZeroRangeSpecified)
+		}
+
+		let prev_cursor = self.cursor;
+		self.file.seek(SeekFrom::Start(start)).map_err(|e| BackendError::IoError(e))?;
+
+		let bytes_read = self.file.read(self.buf).map_err(|e| BackendError::IoError(e))?;
+
+		f(&self.buf[0..bytes_read]);
+
+		self.file.seek(SeekFrom::Start(prev_cursor)).map_err(|e| BackendError::IoError(e))?;
 
 		Ok(())
 	}

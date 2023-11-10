@@ -27,7 +27,7 @@ fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
 
 		let mut ioman = IoManager::new_with(*block_size);
 
-		ioman.open_with(file_path, |file_path, block_size| {
+		ioman.open_with_seq(file_path, |file_path, block_size| {
 			Ok(filebuf::IoFileBuf::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 		}).expect("Failed to open test_data/io_bench.dat");
 
@@ -47,7 +47,7 @@ fn bench_mmap(b: &mut Bencher, block_size: &u64) {
 
 		let mut ioman = IoManager::new_with(*block_size);
 
-		ioman.open_with(file_path, |file_path, block_size| {
+		ioman.open_with_seq(file_path, |file_path, block_size| {
 			Ok(mmap::IoMmap::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 		}).expect("Failed to open test_data/io_bench.dat");
 
@@ -61,7 +61,7 @@ fn bench_io_uring(b: &mut Bencher, block_size: &u64) {
 
 		let mut ioman = IoManager::new_with(*block_size);
 
-		ioman.open_with(file_path, |file_path, block_size| {
+		ioman.open_with_seq(file_path, |file_path, block_size| {
 			Ok(io_uring::IoUring::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 		}).expect("Failed to open test_data/io_bench.dat");
 
@@ -75,7 +75,7 @@ fn bench_direct(b: &mut Bencher, block_size: &u64) {
 
 		let mut ioman = IoManager::new_with(*block_size);
 
-		ioman.open_with(file_path, |file_path, block_size| {
+		ioman.open_with_seq(file_path, |file_path, block_size| {
 			Ok(direct::IoDirect::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 		}).expect("Failed to open test_data/io_bench.dat");
 
