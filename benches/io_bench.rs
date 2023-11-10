@@ -17,6 +17,9 @@ fn criterion(c: &mut Criterion) {
 	group.bench_with_input("mmap", &block_size, bench_mmap);
 	group.bench_with_input("io_uring", &block_size, bench_io_uring);
 	group.bench_with_input("direct", &block_size, bench_direct);
+
+	// TODO: Create benchmark to test best read size for io_uring backend
+	// let mut io_uring_bench = c.bench_function("io_uring_readlen", bench_io_uring_readlen);
 }
 
 fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
@@ -62,7 +65,7 @@ fn bench_io_uring(b: &mut Bencher, block_size: &u64) {
 		let mut ioman = IoManager::new_with(*block_size);
 
 		ioman.open_with_seq(file_path, |file_path, block_size| {
-			Ok(io_uring::IoUring::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
+			Ok(io_uring::IoUring::new(file_path, block_size, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 		}).expect("Failed to open test_data/io_bench.dat");
 
 		ioman
@@ -104,3 +107,7 @@ fn bench_ioman(mut ioman: IoManager) {
 		}
 	}
 }
+
+// fn bench_io_uring_readlen(b: &mut Bencher) {
+// 	todo!()
+// }

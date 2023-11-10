@@ -231,7 +231,7 @@ mod test {
 		let mut ioman = IoManager::new_with(10);
 
 		ioman.open_with_seq("test_data/io_test.dat", |file_path, block_size| {
-			Ok(io_uring::IoUring::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
+			Ok(io_uring::IoUring::new(file_path, block_size, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 		}).expect("Failed to open test_data/io_test.dat");
 
 		test_io_manager(ioman, include_str!("../../test_data/io_test.dat"))
