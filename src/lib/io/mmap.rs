@@ -47,7 +47,7 @@ impl IoBackend for IoMmap {
 		}
 	}
 
-	fn next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String> {
+	fn read_next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String> {
 		let start = self.cursor;
 		let end = if self.cursor + self.block_size < self.file_len {
 			self.cursor + self.block_size

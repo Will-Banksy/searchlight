@@ -1,14 +1,14 @@
 # DISK I/O
 
 SSD: WD Blue SN570 1TB
-- Reported sequential read: 3500 MB/s
+- Reported sequential read: 3500 MB/s (~3.260 GiB)
 
 ## FIO Benchmark
 
 - Parameters: `fio --name TEST --eta-newline=5s --filename=fio-tempfile.dat --rw=read --size=500m --io_size=10g --blocksize=1024k --ioengine=libaio --fsync=10000 --iodepth=32 --direct=1 --numjobs=1 --runtime=60 --group_reporting`
 - Environment: Idle system with programs open
 
-Test results: 3508 MB/s
+Test results: 3508 MB/s (~3.267 GiB)
 
 ## Searchlight Benchmarks
 
@@ -18,7 +18,7 @@ See benches/io_bench.rs for the benchmark file.
 
 ### No-op
 
-Each read block was simply passed through a black_box, not copied or processed in any way. These scores are closer to what you see on drive benchmarks - closer to the 3.5 GB/s that the used SSD is rated at, but not representative of real scenarios where you want to do processing on each block.
+Each read block was simply passed through a black_box, not copied or processed in any way. These scores are closer to what you see on drive benchmarks - closer to the 3.267 GiB/s that the used SSD is rated at, but not representative of real scenarios where you want to do processing on each block.
 
 The io/mmap benchmark is a significant outlier here - as no bytes are actually read from the loaded block, the kernel doesn't actually need to do any I/O operations, so it's super fast.
 
@@ -42,7 +42,7 @@ io/direct
 
 Each read block was memcpy'd into a buffer. These throughput scores are closer to what you'd expect when doing processing on each loaded block.
 
-The io/mmap benchmark is an outlier, as it seems to outperform the reported and FIO benchmarked read speed, which can be put down to caching. posix_fadvise was used to attempt to circumvent this, to no avail. The others weren't affected by this, as they use O_DIRECT.
+The io/mmap benchmark is an outlier, as it seems to outperform the reported and FIO benchmarked read speed, which can be put down to caching. posix_fadvise was used to attempt to circumvent this, to no avail. The others weren't affected by this, as they use O_DIRECT. A single run was able to be timed (see examples/mmap_bench.rs) for a result of ~0.786 GiB/s - interestingly far slower than expected, and far slower than the rest.
 
 io/filebuf
 - time:   [2.4441 s 2.4578 s 2.4734 s]

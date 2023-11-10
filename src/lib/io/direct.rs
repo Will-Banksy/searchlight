@@ -62,7 +62,7 @@ impl<'a> IoBackend for IoDirect<'a> {
 		}
 	}
 
-	fn next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
+	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
 		let bytes_read = self.file.read(self.buf).map_err(|e| e.to_string())?;
 
 		if bytes_read == 0 {

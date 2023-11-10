@@ -6,6 +6,10 @@ use crate::lib::io::DEFAULT_ALIGNMENT;
 
 use super::{IoBackend, file_len, BackendInfo};
 
+// TODO: Test using a read queing strategy more similar to OpenForensics
+//     How I *think* file reading works in OpenForensics is that instead of queing a read for an entire chunk
+//     at a time, it queues reads for multiple sub-chunks of that chunk
+
 pub struct IoUring<'a, 'c> {
 	buf: &'a mut [u8],
 	mem_layout: Layout,
@@ -85,7 +89,7 @@ impl<'a, 'c> IoBackend for IoUring<'a, 'c> where 'a: 'c {
 		}
 	}
 
-	fn next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
+	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
 		// If there is a queued operation, await that
 		if let Some(completion) = self.prev_completion.take() {
 			let bytes_read = completion.wait().map_err(|e| e.to_string())?;

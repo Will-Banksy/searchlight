@@ -168,7 +168,7 @@ impl IoBackend for IoFileBuf<'_> {
 	///
 	/// An error will be returned if one occurs. Note that an error can still be returned even if
 	/// `f` was called successfully with the next block or None.
-	fn next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
+	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), String> {
 		if let Some(plt_reciever) = &self.plt_receiver {
 			let msg = plt_reciever.recv().map_err(|e| e.to_string());
 			match msg {

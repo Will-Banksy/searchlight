@@ -10,7 +10,7 @@ pub const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
 pub const DEFAULT_ALIGNMENT: usize = 4096;
 
 // TODO: Test how long the main thread waits on the io_thread
-// https://stackoverflow.com/a/39196499/11009247
+// TODO: Add writing and random access support to IoBackend and IoManager - Maybe also streamline it so that it doesn't support pluggable IO backends, but uses mmaps for reading large files and io_uring for reading/writing to lots of different files
 
 pub trait IoBackend {
 	/// Returns information about the opened file - Currently just the length of it
@@ -18,7 +18,7 @@ pub trait IoBackend {
 	/// Read the next block of file data, calling the closure with an the read block as a slice, None if reached the EOF, or Err if an error occurred
 	///
 	/// This function uses a closure to allow the implementor to have more control over the lifetime and usage of the slice
-	fn next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String>; // Needs to take a boxed function to make it object safe
+	fn read_next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), String>; // Needs to take a boxed function to make it object safe
 }
 
 pub struct BackendInfo {
@@ -32,18 +32,22 @@ pub struct IoManager {
 }
 
 impl IoManager {
+	/// Create a new IoManager that will initialise the backend requesting the default block size (`DEFAULT_BLOCK_SIZE`). Note
+	/// that the backend may use a slightly different block size for memory layout purposes - This can be queried with
+	/// `IoManager::backend_info().unwrap().block_size` once the backend is initialised
 	pub fn new() -> Self {
 		Self::new_with(DEFAULT_BLOCK_SIZE)
 	}
 
 	/// Create a new IoManager that will initialise the backend requesting the specified block size. Note
-	/// that the backend may use a different block size for memory layout purposes
+	/// that the backend may use a slightly different block size for memory layout purposes - This can be queried with
+	/// `IoManager::backend_info().unwrap().block_size` once the backend is initialised
 	pub fn new_with(req_block_size: u64) -> Self {
 		IoManager { req_block_size, io_backend: None }
 	}
 
 	/// Open a file with an automatically selected backend based on the file size: For sizes below 16KiB, it
-	/// will use the `IoFileBuf` backend, for bigger sizes it'll use the `IoMmap` backend
+	/// will use the `IoFileBuf` backend, for bigger sizes it'll use the `IoMmap` backend. This function will initialise the backend
 	pub fn open(&mut self, path: &str) -> Result<(), String> {
 		// If the file size is more than 16KiB, use the memory mapped IoBackend
 		// Otherwise, use the filebuf IoBackend
@@ -68,7 +72,8 @@ impl IoManager {
 		self.open_with(path, io_backend_cons)
 	}
 
-	/// Open a file with a specific io backend, constructed using the passed-in closure with arguments: open file, file length, block size
+	/// Open a file with a specific io backend, constructed using the passed-in closure with arguments: open file, file length, block size.
+	/// This function will initialise the backend
 	pub fn open_with<'a, F>(&mut self, path: &'a str, backend_cons: F) -> Result<(), String> where F: FnOnce(&'a str, u64) -> Result<Box<dyn IoBackend>, String> {
 		// Get the io backend by calling the provided closure
 		self.io_backend = Some(backend_cons(path, self.req_block_size)?);
@@ -86,7 +91,7 @@ impl IoManager {
 			let mut r: Option<R> = None;
 
 			// Call the backend's next function, letting the caller of this function handle it, and extract the return value of the provided function
-			io_backend.next(Box::new(|next| {
+			io_backend.read_next(Box::new(|next| {
 				r = Some(f(next))
 			})).map_err(|e| format!("[ERROR] IoManager::with_next_block: Backend error on next: {}", e.to_string()))?;
 
@@ -100,7 +105,7 @@ impl IoManager {
 
 	/// Returns the progress through the file as a number between 0.0 and 1.0.
 	/// Specifically, returns the last loaded address divided by the file length
-	pub fn progress(&self) -> f32 {
+	pub fn progress(&self) -> Option<f32> {
 		todo!() // TODO: This will require either logic in IoManager or an impl in IoBackend (tradeoffs?)
 		// if let Some(file_len) = self.file_len {
 		// 	(((self.curr_block_idx - 1) * self.block_size + self.curr_block_bytes_read) as f32) / (file_len as f32)
@@ -109,6 +114,8 @@ impl IoManager {
 		// }
 	}
 
+	/// Returns an instance of `BackendInfo` if the backend is initialised, or None otherwise. BackendInfo contains information
+	/// common to most backends that may be useful
 	pub fn backend_info(&self) -> Option<BackendInfo> {
 		if let Some(backend) = &self.io_backend {
 			Some(backend.file_info())
