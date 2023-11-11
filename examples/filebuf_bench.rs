@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use searchlight::lib::io::{IoManager, mmap};
+use searchlight::lib::io::{IoManager, filebuf};
 
 /// This example is just a mmap backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10
 fn main() {
@@ -9,7 +9,7 @@ fn main() {
 	let mut ioman = IoManager::new();
 
 	ioman.open_with_seq(file_path, |file_path, block_size| {
-		Ok(mmap::IoMmap::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
+		Ok(filebuf::IoFileBuf::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
 	}).expect("Failed to open test_data/io_bench.dat");
 
 	let start = Instant::now();

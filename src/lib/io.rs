@@ -1,6 +1,6 @@
 pub mod mmap;
 pub mod filebuf;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod io_uring;
 pub mod direct;
 
@@ -227,6 +227,7 @@ mod test {
 	}
 
 	#[test]
+	#[cfg(target_os = "linux")]
 	fn test_io_manager_io_uring() {
 		let mut ioman = IoManager::new_with(10);
 

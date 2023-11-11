@@ -4,9 +4,9 @@ use rio::{Rio, Completion};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{SeqIoBackend, file_len, BackendInfo, BackendError, IoBackend, DEFAULT_BLOCK_SIZE};
+use super::{SeqIoBackend, file_len, BackendInfo, BackendError, IoBackend};
 
-pub const URING_READ_SIZE: usize = DEFAULT_ALIGNMENT * 64; // DEFAULT_BLOCK_SIZE as usize;// DEFAULT_ALIGNMENT * 320;
+pub const URING_READ_SIZE: usize = DEFAULT_ALIGNMENT * 16; // DEFAULT_BLOCK_SIZE as usize;// DEFAULT_ALIGNMENT * 320;
 
 // TODO: Test using a read queing strategy more similar to OpenForensics
 //     How I *think* file reading works in OpenForensics is that instead of queing a read for an entire chunk
@@ -39,6 +39,8 @@ impl<'a, 'c> IoUring<'a, 'c> {
 
 		// Need aligned memory of a size a multiple of the alignment for O_DIRECT - round upwards
 		let block_size = (block_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
+		// Also need to read in sizes of a multiple of the alignment
+		let read_size = (read_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
 		assert_eq!(block_size % DEFAULT_ALIGNMENT as u64, 0);
 		let mem_layout = Layout::from_size_align(block_size as usize, DEFAULT_ALIGNMENT).map_err(|e| e.to_string())?;
 		let buf = unsafe {
