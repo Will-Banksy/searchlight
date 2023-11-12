@@ -1,8 +1,8 @@
-use std::{fs::{OpenOptions, File}, alloc::{self, Layout}, slice, os::{unix::prelude::OpenOptionsExt, fd::AsRawFd}, io::{Read, Seek, SeekFrom}};
+use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom}};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError};
+use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError, AccessPattern};
 
 pub struct IoDirect<'a> {
 	buf: &'a mut [u8],
@@ -16,29 +16,21 @@ impl<'a> IoDirect<'a> {
 	/// Opens the file specified by file_path, using a buffer of size the specified block size, using the O_DIRECT flag
 	///
 	/// Note that the actual block size used may be changed
-	pub fn new(file_path: &str, block_size: u64) -> Result<Self, String> {
-		let mut open_opts = OpenOptions::new();
-		open_opts.read(true);
+	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, req_block_size: u64) -> Result<Self, BackendError> {
+		let custom_flags = {
+			#[cfg(target_os = "linux")]
+			{ libc::O_DIRECT }
+			#[cfg(not(target_os = "linux"))]
+			{ 0 }
+		};
 
-		// If on linux, use the O_DIRECT flag to avoid caching and copying since we're doing our own buffering
-		#[cfg(unix)]
-		{
-			open_opts.custom_flags(libc::O_DIRECT);
-		}
-
-		// Open the file and get it's length
-		let mut file = open_opts.open(file_path).map_err(|e| e.to_string())?;
-		let file_len = file_len(&mut file)?;
-
-		#[cfg(unix)]
-		unsafe {
-			libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-		}
+		let mut file = super::open_with(file_path, read, write, access_pattern, custom_flags).map_err(|e| BackendError::IoError(e))?;
+		let file_len = file_len(&mut file).map_err(|e| BackendError::IoError(e))?;
 
 		// Need aligned memory of a size a multiple of the alignment for O_DIRECT - round upwards
-		let block_size = (block_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
+		let block_size = (req_block_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
 		assert_eq!(block_size % DEFAULT_ALIGNMENT as u64, 0);
-		let mem_layout = Layout::from_size_align(block_size as usize, DEFAULT_ALIGNMENT).map_err(|e| e.to_string())?;
+		let mem_layout = Layout::from_size_align(block_size as usize, DEFAULT_ALIGNMENT).unwrap();
 		let buf = unsafe {
 			slice::from_raw_parts_mut(
 				alloc::alloc(mem_layout),

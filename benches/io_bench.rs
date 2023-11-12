@@ -1,13 +1,15 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{Criterion, criterion_main, criterion_group, Bencher, Throughput, BenchmarkId};
-use searchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE, DEFAULT_ALIGNMENT};
+use searchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE, DEFAULT_ALIGNMENT, GenIoBackend, AccessPattern};
 
 #[cfg(target_os = "linux")]
 criterion_group!(benches, io_bench, io_uring_bench);
 #[cfg(not(target_os = "linux"))]
 criterion_group!(benches, io_bench);
 criterion_main!(benches);
+
+const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 
 #[cfg(target_os = "linux")]
 fn io_uring_bench(c: &mut Criterion) {
@@ -46,15 +48,17 @@ fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
 	// let start = Instant::now();
 
 	b.iter_batched(|| {
-		let file_path = "test_data/io_bench.dat";
+		let mut ioman = IoManager::new();
 
-		let mut ioman = IoManager::new_with(*block_size);
+		let path = BENCH_FILE;
 
-		ioman.open_with_seq(file_path, |file_path, block_size| {
-			Ok(filebuf::IoFileBuf::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
-		}).expect("Failed to open test_data/io_bench.dat");
+		ioman.open_with(path, true, false, {
+			GenIoBackend::Seq(
+				filebuf::IoFileBuf::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			)
+		});
 
-		ioman
+		(ioman, path)
 	}, bench_ioman, criterion::BatchSize::LargeInput)
 
 	// let secs_elapsed = start.elapsed().as_secs_f32();
@@ -66,52 +70,58 @@ fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
 
 fn bench_mmap(b: &mut Bencher, block_size: &u64) {
 	b.iter_batched(|| {
-		let file_path = "test_data/io_bench.dat";
+		let mut ioman = IoManager::new();
 
-		let mut ioman = IoManager::new_with(*block_size);
+		let path = BENCH_FILE;
 
-		ioman.open_with_seq(file_path, |file_path, block_size| {
-			Ok(mmap::IoMmap::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
-		}).expect("Failed to open test_data/io_bench.dat");
+		ioman.open_with(path, true, false, {
+			GenIoBackend::Seq(
+				mmap::IoMmap::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			)
+		});
 
-		ioman
+		(ioman, path)
 	}, bench_ioman, criterion::BatchSize::LargeInput)
 }
 
 #[cfg(target_os = "linux")]
 fn bench_io_uring(b: &mut Bencher, block_size: &u64) {
 	b.iter_batched(|| {
-		let file_path = "test_data/io_bench.dat";
+		let mut ioman = IoManager::new();
 
-		let mut ioman = IoManager::new_with(*block_size);
+		let path = BENCH_FILE;
 
-		ioman.open_with_seq(file_path, |file_path, block_size| {
-			Ok(io_uring::IoUring::new(file_path, block_size, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
-		}).expect("Failed to open test_data/io_bench.dat");
+		ioman.open_with(path, true, false, {
+			GenIoBackend::Seq(
+				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, *block_size, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			)
+		});
 
-		ioman
+		(ioman, path)
 	}, bench_ioman, criterion::BatchSize::LargeInput)
 }
 
 fn bench_direct(b: &mut Bencher, block_size: &u64) {
 	b.iter_batched(|| {
-		let file_path = "test_data/io_bench.dat";
+		let mut ioman = IoManager::new();
 
-		let mut ioman = IoManager::new_with(*block_size);
+		let path = BENCH_FILE;
 
-		ioman.open_with_seq(file_path, |file_path, block_size| {
-			Ok(direct::IoDirect::new(file_path, block_size).map(|io_filebuf| Box::new(io_filebuf))?)
-		}).expect("Failed to open test_data/io_bench.dat");
+		ioman.open_with(path, true, false, {
+			GenIoBackend::Seq(
+				direct::IoDirect::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			)
+		});
 
-		ioman
+		(ioman, path)
 	}, bench_ioman, criterion::BatchSize::LargeInput)
 }
 
-fn bench_ioman(mut ioman: IoManager) {
+fn bench_ioman((mut ioman, path): (IoManager, &str)) {
 	// let mut buf = vec![0; ioman.backend_info().unwrap().block_size as usize];
 
 	loop {
-		let eof = ioman.with_next_block(|block| {
+		let eof = ioman.read_next(path, |block| {
 			match block {
 				Some(block) => {
 					// buf[0..block.len()].copy_from_slice(black_box(block));
@@ -132,14 +142,16 @@ fn bench_ioman(mut ioman: IoManager) {
 #[cfg(target_os = "linux")]
 fn bench_io_uring_readlen(b: &mut Bencher, read_len: &u64) {
 	b.iter_batched(|| {
-		let file_path = "test_data/io_bench.dat";
+		let mut ioman = IoManager::new();
 
-		let mut ioman = IoManager::new_with(DEFAULT_BLOCK_SIZE);
+		let path = BENCH_FILE;
 
-		ioman.open_with_seq(file_path, |file_path, block_size| {
-			Ok(io_uring::IoUring::new(file_path, block_size, *read_len).map(|io_filebuf| Box::new(io_filebuf))?)
-		}).expect("Failed to open test_data/io_bench.dat");
+		ioman.open_with(path, true, false, {
+			GenIoBackend::Seq(
+				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, DEFAULT_BLOCK_SIZE, *read_len).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			)
+		});
 
-		ioman
+		(ioman, path)
 	}, bench_ioman, criterion::BatchSize::LargeInput)
 }

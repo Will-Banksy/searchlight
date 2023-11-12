@@ -1,8 +1,10 @@
-use std::{fs::{File, OpenOptions}, io::Read, sync::{Arc, mpsc::{Receiver, self, Sender}}, thread::{self, JoinHandle}, os::{fd::AsRawFd, unix::prelude::OpenOptionsExt}, alloc::Layout, slice, alloc};
+use std::{fs::File, io::Read, sync::{Arc, mpsc::{Receiver, self, Sender}}, thread::{self, JoinHandle}, alloc::Layout, slice, alloc};
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, BackendError};
+use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, BackendError, AccessPattern};
 
 const NUM_BLOCKS: usize = 3; // Controls how many blocks are loaded at once
 
@@ -36,31 +38,23 @@ pub struct IoFileBuf<'a> {
 
 impl<'a> IoFileBuf<'a> {
 	/// Returns an instance of self, having opened the file, or returns an error if one occurred
-	pub fn new(file_path: &str, block_size: u64) -> Result<Self, String> {
-		let mut open_opts = OpenOptions::new();
-		open_opts.read(true);
+	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, block_size: u64) -> Result<Self, BackendError> {
+		let custom_flags = {
+			#[cfg(target_os = "linux")]
+			{ libc::O_DIRECT }
+			#[cfg(not(target_os = "linux"))]
+			{ 0 }
+		};
 
-		// If on linux, use the O_DIRECT flag to avoid caching and copying since we're doing our own buffering
-		#[cfg(unix)]
-		{
-			open_opts.custom_flags(libc::O_DIRECT);
-		}
-
-		// Open the file and get it's length
-		let mut file = open_opts.open(file_path).map_err(|e| e.to_string())?;
-		let file_len = file_len(&mut file)?;
-
-		#[cfg(unix)]
-		unsafe {
-			libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-		}
+		let mut file = super::open_with(file_path, read, write, access_pattern, custom_flags).map_err(|e| BackendError::IoError(e))?;
+		let file_len = file_len(&mut file).map_err(|e| BackendError::IoError(e))?;
 
 		// Need aligned memory of a size a multiple of the alignment for O_DIRECT - round upwards
 		// Allocate 3 times the rounded block size
 		let block_size = (block_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
 		assert_eq!(block_size % DEFAULT_ALIGNMENT as u64, 0);
 		let buf_size = (block_size as usize) * NUM_BLOCKS;
-		let mem_layout = Layout::from_size_align(buf_size, DEFAULT_ALIGNMENT).map_err(|e| e.to_string())?;
+		let mem_layout = Layout::from_size_align(buf_size, DEFAULT_ALIGNMENT).unwrap(); // Could naturally occur but in the instance that it does... I think panicking is an appropriate response
 		let buf = unsafe {
 			slice::from_raw_parts_mut(
 				alloc::alloc(mem_layout),
@@ -93,12 +87,12 @@ impl<'a> IoFileBuf<'a> {
 		Ok(fb)
 	}
 
-	fn start_preload_thread(&mut self) -> Result<(), String> {
+	fn start_preload_thread(&mut self) -> Result<(), BackendError> {
 		// Copy a load of stuff to be sent to the preloader thread
 		let mut block_refs: Vec<&'static mut [u8]> = {
 			self.block_refs.iter_mut().map(|r| unsafe { &mut *(*r as *mut [u8]) }).collect()
 		};
-		let mut file = self.file.take().ok_or("[ERROR] Preload thread already started")?;
+		let mut file = self.file.take().unwrap(); // Panic if no file cause if no file that indicates a logic error
 
 		// preload_block_ref is the block that will be written to by the preloader thread - We want that to be (initially) the current block
 		let mut curr_block_ref = (self.curr_block_ref + NUM_BLOCKS - 1) % NUM_BLOCKS;

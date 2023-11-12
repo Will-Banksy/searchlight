@@ -2,7 +2,7 @@ use std::{fs::File, os::fd::AsRawFd};
 
 use memmap::{Mmap, MmapOptions};
 
-use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError};
+use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError, AccessPattern};
 
 pub struct IoMmap {
 	file: File,
@@ -13,16 +13,11 @@ pub struct IoMmap {
 }
 
 impl IoMmap {
-	pub fn new(file_path: &str, block_size: u64) -> Result<Self, String> {
-		let mut file = File::open(file_path).map_err(|e| e.to_string())?;
-		let file_len = file_len(&mut file)?;
+	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, block_size: u64) -> Result<Self, BackendError> {
+		let mut file = super::open_with(file_path, read, write, access_pattern, 0).map_err(|e| BackendError::IoError(e))?;
+		let file_len = file_len(&mut file).map_err(|e| BackendError::IoError(e))?;
 
-		#[cfg(unix)]
-		unsafe {
-			libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-		}
-
-		let mmap = unsafe { MmapOptions::new().map(&file).map_err(|e| e.to_string())? };
+		let mmap = unsafe { MmapOptions::new().map(&file).map_err(|e| BackendError::IoError(e))? };
 
 		#[cfg(unix)]
 		unsafe {

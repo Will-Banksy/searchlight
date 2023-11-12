@@ -1,12 +1,12 @@
-use std::{fs::{OpenOptions, File}, alloc::{self, Layout}, slice, os::{unix::prelude::OpenOptionsExt, fd::AsRawFd}, collections::VecDeque};
+use std::{fs::File, alloc::{self, Layout}, slice, collections::VecDeque};
 
 use rio::{Rio, Completion};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
-use super::{SeqIoBackend, file_len, BackendInfo, BackendError, IoBackend};
+use super::{SeqIoBackend, file_len, BackendInfo, BackendError, IoBackend, AccessPattern};
 
-pub const URING_READ_SIZE: usize = DEFAULT_ALIGNMENT * 16; // DEFAULT_BLOCK_SIZE as usize;// DEFAULT_ALIGNMENT * 320;
+pub const DEFAULT_URING_READ_SIZE: usize = DEFAULT_ALIGNMENT * 16; // DEFAULT_BLOCK_SIZE as usize;// DEFAULT_ALIGNMENT * 320;
 
 // TODO: Test using a read queing strategy more similar to OpenForensics
 //     How I *think* file reading works in OpenForensics is that instead of queing a read for an entire chunk
@@ -27,22 +27,16 @@ impl<'a, 'c> IoUring<'a, 'c> {
 	/// Opens the file specified by file_path, using a buffer of size the specified block size, using the O_DIRECT flag
 	///
 	/// Note that the actual block size used may be changed
-	pub fn new(file_path: &str, block_size: u64, read_size: u64) -> Result<Self, String> {
-		// Open file with O_DIRECT and query length of file
-		let mut file = OpenOptions::new().custom_flags(libc::O_DIRECT).read(true).open(file_path).map_err(|e| e.to_string())?;
-		let file_len = file_len(&mut file)?;
-
-		#[cfg(unix)]
-		unsafe {
-			libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-		}
+	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, block_size: u64, read_size: u64) -> Result<Self, BackendError> {
+		let mut file = super::open_with(file_path, read, write, access_pattern, libc::O_DIRECT).map_err(|e| BackendError::IoError(e))?;
+		let file_len = file_len(&mut file).map_err(|e| BackendError::IoError(e))?;
 
 		// Need aligned memory of a size a multiple of the alignment for O_DIRECT - round upwards
 		let block_size = (block_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
 		// Also need to read in sizes of a multiple of the alignment
 		let read_size = (read_size as f64 / DEFAULT_ALIGNMENT as f64).ceil() as u64 * DEFAULT_ALIGNMENT as u64;
 		assert_eq!(block_size % DEFAULT_ALIGNMENT as u64, 0);
-		let mem_layout = Layout::from_size_align(block_size as usize, DEFAULT_ALIGNMENT).map_err(|e| e.to_string())?;
+		let mem_layout = Layout::from_size_align(block_size as usize, DEFAULT_ALIGNMENT).unwrap();
 		let buf = unsafe {
 			slice::from_raw_parts_mut(
 				alloc::alloc(mem_layout),
@@ -50,7 +44,7 @@ impl<'a, 'c> IoUring<'a, 'c> {
 			)
 		};
 
-		let ring = rio::new().map_err(|e| e.to_string())?;
+		let ring = rio::new().map_err(|e| BackendError::IoError(e))?;
 
 		let cursor = 0;
 
