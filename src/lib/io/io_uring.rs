@@ -14,11 +14,13 @@ pub const DEFAULT_URING_READ_SIZE: usize = DEFAULT_ALIGNMENT * 16; // DEFAULT_BL
 
 pub struct IoUring<'a, 'c> {
 	buf: &'a mut [u8],
+	write_buffer: Vec<u8>,
 	mem_layout: Layout,
 	ring: Rio,
 	file: File,
 	file_len: u64,
-	completions: VecDeque<Completion<'c, usize>>, // Option<Completion<'c, usize>>,
+	read_completions: VecDeque<Completion<'c, usize>>, // Option<Completion<'c, usize>>,
+	write_completions: VecDeque<Completion<'c, usize>>,
 	cursor: u64,
 	uring_read_size: u64
 }
@@ -50,11 +52,13 @@ impl<'a, 'c> IoUring<'a, 'c> {
 
 		let mut io_uring = IoUring {
 			buf,
+			write_buffer: Vec::new(),
 			mem_layout,
 			ring,
 			file,
 			file_len,
-			completions: VecDeque::new(),
+			read_completions: VecDeque::new(),
+			write_completions: VecDeque::new(),
 			cursor,
 			uring_read_size: read_size
 		};
@@ -79,18 +83,12 @@ pub fn req_next<'a, 'c>(uring: &'a mut IoUring<'a, 'c>) where 'a: 'c {
 	// Temporary cursor
 	let mut tcursor = uring.cursor;
 
-	// uring.prev_completion = Some(uring.ring.read_at(&uring.file, &uring.buf, uring.cursor));
-	// uring.ring.submit_all();
+	// Split the block to be read into chunks of size `uring.uring_read_size` and submit read commands for each chunk
 	for c in uring.buf.chunks_mut(uring.uring_read_size as usize) {
 		if tcursor >= uring.file_len {
 			break;
-		// } else if uring.cursor + (c.len() as u64) > uring.file_len {
-		// 	let bytes_left = uring.file_len - uring.cursor;
-		// 	let bytes_to_end_from_c = c.len() - bytes_left as usize;
-		// 	uring.completions.push_back(uring.ring.read_at(&uring.file, unsafe { std::mem::transmute::<&&mut [u8], &&'c mut [u8]>(&c) }, uring.cursor));
-		// 	uring.cursor += bytes_left;
 		} else {
-			uring.completions.push_back(uring.ring.read_at(&uring.file, unsafe { std::mem::transmute::<&&mut [u8], &&'c mut [u8]>(&c) }, tcursor));
+			uring.read_completions.push_back(uring.ring.read_at(&uring.file, unsafe { std::mem::transmute::<&&mut [u8], &&'c mut [u8]>(&c) }, tcursor));
 			tcursor += c.len() as u64;
 			if tcursor > uring.file_len {
 				tcursor = uring.file_len;
@@ -111,28 +109,10 @@ impl<'a, 'c> IoBackend for IoUring<'a, 'c> where 'a: 'c {
 
 impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
 	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), BackendError> {
-		// // If there is a queued operation, await that
-		// if let Some(completion) = self.prev_completion.take() {
-		// 	let bytes_read = completion.wait().map_err(|e| BackendError::IoError(e))?;
-
-		// 	// Call f with the appropriate argument
-		// 	if bytes_read == 0 {
-		// 		f(None)
-		// 	} else {
-		// 		f(Some(&self.buf[0..bytes_read]))
-		// 	}
-
-		// 	// And increment the cursor
-		// 	self.cursor += bytes_read as u64;
-		// } else {
-		// 	// Else if there was no queued operation, just call f with none
-		// 	f(None)
-		// }
-
 		let mut bytes_read_total = 0;
 
-		while self.completions.len() > 0 {
-			let bytes_read = self.completions.pop_front().unwrap().wait().map_err(|e| BackendError::IoError(e))?;
+		while self.read_completions.len() > 0 {
+			let bytes_read = self.read_completions.pop_front().unwrap().wait().map_err(|e| BackendError::IoError(e))?;
 			bytes_read_total += bytes_read;
 		}
 
@@ -150,13 +130,26 @@ impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
 
 		Ok(())
 	}
+
+	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError> {
+		// TODO: Await all the write completions, then memcpy the data into the write buffer (overwriting contents) and submit write command
+
+		todo!();
+
+		self.write_completions.push_back(self.ring.write_at(&self.file, &data, self.cursor));
+
+		Ok(())
+	}
 }
 
 impl<'a, 'c> Drop for IoUring<'a, 'c> {
 	fn drop(&mut self) {
-		// Await the current io operations, lest they use the buffer after it's freed
-		while self.completions.len() != 0 {
-			self.completions.pop_front().unwrap().wait().map_err(|e| BackendError::IoError(e)).unwrap_or_default();
+		// Await the current io operations, lest they use the buffer after it's freed or fail to write after the file is closed
+		while self.read_completions.len() != 0 {
+			self.read_completions.pop_front().unwrap().wait().map_err(|e| BackendError::IoError(e)).unwrap_or_default();
+		}
+		while self.write_completions.len() != 0 {
+			self.write_completions.pop_front().unwrap().wait().map_err(|e| BackendError::IoError(e)).unwrap_or_default();
 		}
 
 		// Deallocate the aligned memory

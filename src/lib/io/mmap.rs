@@ -60,6 +60,11 @@ impl SeqIoBackend for IoMmap {
 		self.cursor = end;
 		ret
 	}
+
+	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError> {
+		// Unimplemented because cannot satisfy the requirements of this method
+		unimplemented!("Cannot grow memory mapped files")
+	}
 }
 
 impl RandIoBackend for IoMmap {

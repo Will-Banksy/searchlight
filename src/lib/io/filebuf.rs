@@ -204,6 +204,10 @@ impl SeqIoBackend for IoFileBuf<'_> {
 			panic!("[ERROR]: Invalid state")
 		}
 	}
+
+	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError> {
+		todo!() // TODO
+	}
 }
 
 impl Drop for IoFileBuf<'_> {

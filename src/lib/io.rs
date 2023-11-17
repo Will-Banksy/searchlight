@@ -29,6 +29,10 @@ pub trait SeqIoBackend: IoBackend {
 	///
 	/// This function uses a closure to allow the implementor to have more control over the lifetime and usage of the slice
 	fn read_next<'a>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'a>) -> Result<(), BackendError>;
+
+	/// Write the provided data to the open file, returning an error if one occurred.
+	/// This function will write from the cursor, extending the file if necessary
+	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError>; // TODO: Implement in backends
 }
 
 pub trait RandIoBackend: IoBackend {
@@ -61,6 +65,10 @@ pub trait RandIoBackend: IoBackend {
 			Ok(_) => Ok(())
 		}
 	}
+
+	/// Write the specified data to the open file at the specified index. Written data will be truncated to fit within file bounds -
+	/// if the specified start position is >= file length, then no data will be written
+	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError> { todo!() } // TODO: Implement in backends
 }
 
 pub trait RandSeqIoBackend: RandIoBackend + SeqIoBackend {}

@@ -1,4 +1,4 @@
-use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom}};
+use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom, Write}};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
@@ -71,6 +71,10 @@ impl<'a> SeqIoBackend for IoDirect<'a> {
 		}
 
 		Ok(())
+	}
+
+	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError> {
+		self.file.write_all(data).map_err(|e| BackendError::IoError(e))
 	}
 }
 
