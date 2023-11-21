@@ -98,6 +98,10 @@ impl<'a> RandIoBackend for IoDirect<'a> {
 
 		Ok(())
 	}
+
+	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError> {
+		todo!() // TODO
+	}
 }
 
 impl<'a> Drop for IoDirect<'a> {

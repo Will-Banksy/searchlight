@@ -32,7 +32,7 @@ pub trait SeqIoBackend: IoBackend {
 
 	/// Write the provided data to the open file, returning an error if one occurred.
 	/// This function will write from the cursor, extending the file if necessary
-	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError>; // TODO: Implement in backends
+	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError>;
 }
 
 pub trait RandIoBackend: IoBackend {
@@ -68,7 +68,7 @@ pub trait RandIoBackend: IoBackend {
 
 	/// Write the specified data to the open file at the specified index. Written data will be truncated to fit within file bounds -
 	/// if the specified start position is >= file length, then no data will be written
-	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError> { todo!() } // TODO: Implement in backends
+	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError>;// TODO: Implement in backends
 }
 
 pub trait RandSeqIoBackend: RandIoBackend + SeqIoBackend {}
@@ -80,7 +80,8 @@ pub enum BackendError {
 	IoError(io::Error),
 	RegionOutsideFileBounds,
 	ZeroRangeSpecified,
-	ThreadSendRecvError(String)
+	ThreadSendRecvError(String),
+	UnsupportedOperation
 }
 
 impl ToString for BackendError {
@@ -89,7 +90,8 @@ impl ToString for BackendError {
 			BackendError::IoError(e) => format!("I/O error: {}", e.to_string()),
 			BackendError::RegionOutsideFileBounds => format!("Specified region outside of file bounds"),
 			BackendError::ZeroRangeSpecified => format!("Attempting to read zero bytes is an error"),
-			BackendError::ThreadSendRecvError(e_str) => format!("Failed to communicate with other thread: {}", e_str)
+			BackendError::ThreadSendRecvError(e_str) => format!("Failed to communicate with other thread: {}", e_str),
+			BackendError::UnsupportedOperation => format!("Operation is unsupported by this backend")
 		}
 	}
 }
@@ -170,7 +172,7 @@ impl IoManager {
 
 		let req_block_size = req_block_size.unwrap_or(DEFAULT_BLOCK_SIZE);
 
-		/// Macro for creating/inserting workers to avoid repeating code
+		/// Macros for creating/inserting workers to avoid repeating code
 		macro_rules! ins_worker {
 			($backend_cons: expr, $geniobackend_variant: ident) => {
 				self.io_backends.insert(path.to_string(),
@@ -184,25 +186,43 @@ impl IoManager {
 				);
 			};
 		}
+		macro_rules! ins_worker_auto {
+			($backend_struct: ty, $geniobackend_variant: ident) => {
+				ins_worker!(
+					<$backend_struct>::new(path, read, write, access_pattern, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
+					$geniobackend_variant
+				)
+			};
+		}
 
-		// Each backend (except for the io_uring backend) is strong at different access patterns
+		// Each backend (except for the io_uring backend) is strong at different access patterns and reading/writing
+		// Use the direct backend as fallback as that is decent at everything
 		match access_pattern {
 			AccessPattern::Seq => {
-				ins_worker!(
-					filebuf::IoFileBuf::new(path, true, false, AccessPattern::Seq, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
-					Seq
-				);
+				// For sequential, filebuf is stronger at sequential reads, but can't do writes
+				if read && !write {
+					ins_worker_auto!(
+						filebuf::IoFileBuf,
+						Seq
+					);
+				} else {
+					ins_worker_auto!(
+						direct::IoDirect,
+						Seq
+					);
+				}
 			},
 			AccessPattern::Rand => {
-				ins_worker!(
-					mmap::IoMmap::new(path, true, false, AccessPattern::Seq, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
+				// The mmap backend is (theoretically) the best at random reads/writes
+				ins_worker_auto!(
+					mmap::IoMmap,
 					Rand
 				);
 			},
 			// If the access pattern is unspecified, it's probably sensible to assume the caller might want random and sequential reads
 			AccessPattern::RandSeq | AccessPattern::Unspecified => {
 				ins_worker!(
-					direct::IoDirect::new(path, true, false, AccessPattern::Seq, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
+					direct::IoDirect::new(path, read, write, AccessPattern::RandSeq, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
 					RandSeq
 				);
 			},

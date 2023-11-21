@@ -12,6 +12,8 @@ pub const DEFAULT_URING_READ_SIZE: usize = DEFAULT_ALIGNMENT * 16; // DEFAULT_BL
 //     How I *think* file reading works in OpenForensics is that instead of queing a read for an entire chunk
 //     at a time, it queues reads for multiple sub-chunks of that chunk
 
+// TODO: Have a look at: https://notes.eatonphil.com/2023-10-19-write-file-to-disk-with-io_uring.html
+
 pub struct IoUring<'a, 'c> {
 	buf: &'a mut [u8],
 	write_buffer: Vec<u8>,
@@ -64,7 +66,7 @@ impl<'a, 'c> IoUring<'a, 'c> {
 		};
 
 		// Need unsafe transmute cause rust doesn't allow self-referential structs
-		req_next(unsafe {
+		req_next_read(unsafe {
 			std::mem::transmute(&mut io_uring)
 		});
 
@@ -75,7 +77,7 @@ impl<'a, 'c> IoUring<'a, 'c> {
 /// Queues a read into IoUring's buf using io_uring through rio
 ///
 /// Returns a bool indicating whether an operation was queued or not... which is currently unused
-pub fn req_next<'a, 'c>(uring: &'a mut IoUring<'a, 'c>) where 'a: 'c {
+pub fn req_next_read<'a, 'c>(uring: &'a mut IoUring<'a, 'c>) where 'a: 'c {
 	if uring.cursor >= uring.file_len {
 		return;
 	}
@@ -97,6 +99,17 @@ pub fn req_next<'a, 'c>(uring: &'a mut IoUring<'a, 'c>) where 'a: 'c {
 	}
 }
 
+pub fn req_next_write<'a, 'c>(uring: &'a mut IoUring<'a, 'c>) where 'a: 'c {
+	// Temporary cursor
+	let mut tcursor = uring.cursor;
+
+	// Split the block to read into chunks of size `uring.uring_read_size` and submit write commands for each chunk
+	for c in uring.write_buffer.chunks(uring.uring_read_size as usize) {
+		uring.write_completions.push_back(uring.ring.write_at(&uring.file, unsafe { std::mem::transmute::<&&[u8], &&'c [u8]>(&c) }, tcursor));
+		tcursor += c.len() as u64;
+	}
+}
+
 impl<'a, 'c> IoBackend for IoUring<'a, 'c> where 'a: 'c {
 	fn backend_info(&self) -> BackendInfo {
 		BackendInfo {
@@ -111,11 +124,13 @@ impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
 	fn read_next<'b>(&mut self, f: Box<dyn FnOnce(Option<&[u8]>) + 'b>) -> Result<(), BackendError> {
 		let mut bytes_read_total = 0;
 
+		// Await all read completions, totalling the number of bytes read
 		while self.read_completions.len() > 0 {
 			let bytes_read = self.read_completions.pop_front().unwrap().wait().map_err(|e| BackendError::IoError(e))?;
 			bytes_read_total += bytes_read;
 		}
 
+		// If no bytes were read, reached EOF
 		if bytes_read_total == 0 {
 			f(None);
 		} else {
@@ -124,7 +139,7 @@ impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
 		}
 
 		// Need unsafe transmute cause rust doesn't allow self-referential structs
-		req_next(unsafe {
+		req_next_read(unsafe {
 			std::mem::transmute(self)
 		});
 
@@ -132,11 +147,27 @@ impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
 	}
 
 	fn write_next(&mut self, data: &[u8]) -> Result<(), BackendError> {
-		// TODO: Await all the write completions, then memcpy the data into the write buffer (overwriting contents) and submit write command
+		let mut bytes_written_total = 0;
 
-		todo!();
+		// Extract all elements of write_completions and await them all, totalling the bytes written
+		for wc in self.write_completions.drain(0..self.write_completions.len()) {
+			let bytes_written = wc.wait().map_err(|e| BackendError::IoError(e))?;
+			bytes_written_total += bytes_written;
+		}
 
-		self.write_completions.push_back(self.ring.write_at(&self.file, &data, self.cursor));
+		// If no bytes were written, an error has occurred
+		if bytes_written_total == 0 {
+			return Err(BackendError::IoError(std::io::Error::new(std::io::ErrorKind::WriteZero, "io_uring: Zero bytes written")))
+		}
+
+		// Copy the data buffer into the write buffer
+		// NOTE: Eliminating this memcpy could be an optimisation strat for this backend
+		self.write_buffer.extend_from_slice(data);
+
+		// Need unsafe transmute cause rust doesn't allow self-referential structs
+		req_next_write(unsafe {
+			std::mem::transmute(self)
+		});
 
 		Ok(())
 	}
