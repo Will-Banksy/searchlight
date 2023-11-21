@@ -19,7 +19,7 @@ impl IoMmap {
 
 		let mmap = unsafe { MmapOptions::new().map(&file).map_err(|e| BackendError::IoError(e))? };
 
-		#[cfg(unix)]
+		#[cfg(target_os = "linux")]
 		unsafe {
 			libc::madvise(mmap.as_ptr() as *mut libc::c_void, mmap.len(), libc::MADV_SEQUENTIAL);
 		}
@@ -82,7 +82,7 @@ impl RandIoBackend for IoMmap {
 impl Drop for IoMmap {
 	fn drop(&mut self) {
 		// NOTE: Left in for benchmarking - Instruct linux to discard cached file data
-		#[cfg(unix)]
+		#[cfg(target_os = "linux")]
 		unsafe {
 			libc::posix_fadvise(self.file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
 		}

@@ -138,7 +138,7 @@ impl<'a> IoFileBuf<'a> {
 			}
 
 			// NOTE: Left in for benchmarking
-			#[cfg(unix)]
+			#[cfg(target_os = "linux")]
 			unsafe {
 				libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
 			}
@@ -226,7 +226,7 @@ impl Drop for IoFileBuf<'_> {
 		}
 
 		// NOTE: Left in for benchmarking
-		#[cfg(unix)]
+		#[cfg(target_os = "linux")]
 		unsafe {
 			if let Some(file) = &self.file {
 				libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
