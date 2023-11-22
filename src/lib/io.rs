@@ -259,7 +259,6 @@ impl IoManager {
 				Err(IoManagerError::InvalidOperation("File not opened in read mode".to_string()))
 			} else {
 				match &mut worker.backend {
-					// Repetition of code, but only twice which is permissible
 					GenIoBackend::Seq(seq_backend) => {
 						let mut r = None;
 						seq_backend.read_next(Box::new(|block_opt| {
@@ -296,7 +295,6 @@ impl IoManager {
 				Err(IoManagerError::InvalidOperation("File not opened in read mode".to_string()))
 			} else {
 				match &mut worker.backend {
-					// Repetition of code, but only twice which is permissible
 					GenIoBackend::Seq(_) => Err(IoManagerError::InvalidOperation("I/O backend does not support random access".to_string())),
 					GenIoBackend::RandSeq(rand_backend) => {
 						let mut r = None;
@@ -321,6 +319,54 @@ impl IoManager {
 		}
 	}
 
+	/// Write data to the open file from the current cursor position, extending the file where necessary. It will returnan  error if one occurred,
+	/// which could be because the file was not opened, the file was not opened in write mode, the backend used for this file does not support
+	/// sequential access, or because the backend returned an error
+	pub fn write_next(&mut self, path: &str, data: &[u8]) -> Result<(), IoManagerError> {
+		if let Some(worker) = self.io_backends.get_mut(path) {
+			if !worker.write {
+				Err(IoManagerError::InvalidOperation("File not opened in write mode".to_string()))
+			} else {
+				match &mut worker.backend {
+					GenIoBackend::Seq(seq_backend) => {
+						seq_backend.write_next(data).map_err(|e| IoManagerError::BackendError(e))?;
+						Ok(())
+					},
+					GenIoBackend::RandSeq(seq_backend) => {
+						seq_backend.write_next(data).map_err(|e| IoManagerError::BackendError(e))?;
+						Ok(())
+					},
+					GenIoBackend::Rand(_) => Err(IoManagerError::InvalidOperation("I/O backend does not support tracked sequential access".to_string()))
+				}
+			}
+		} else {
+			Err(IoManagerError::InvalidOperation("File has not been opened".to_string()))
+		}
+	}
+
+	/// Write data to the open file at the specified position
+	pub fn write_region(&mut self, path: &str, start: u64, data: &[u8]) -> Result<(), IoManagerError> {
+		if let Some(worker) = self.io_backends.get_mut(path) {
+			if !worker.read {
+				Err(IoManagerError::InvalidOperation("File not opened in read mode".to_string()))
+			} else {
+				match &mut worker.backend {
+					GenIoBackend::Seq(_) => Err(IoManagerError::InvalidOperation("I/O backend does not support random access".to_string())),
+					GenIoBackend::RandSeq(rand_backend) => {
+						rand_backend.write_region(start, data).map_err(|e| IoManagerError::BackendError(e))?;
+						Ok(())
+					},
+					GenIoBackend::Rand(rand_backend) => {
+						rand_backend.write_region(start, data).map_err(|e| IoManagerError::BackendError(e))?;
+						Ok(())
+					}
+				}
+			}
+		} else {
+			Err(IoManagerError::InvalidOperation("File has not been opened".to_string()))
+		}
+	}
+
 	/// Returns the progress through the specified open file as a number between 0.0 and 1.0.
 	/// Specifically, returns the last loaded address divided by the file length
 	pub fn progress(&self, path: &str) -> Option<f32> {
@@ -337,8 +383,6 @@ impl IoManager {
 			None
 		}
 	}
-
-	// TODO: Implement writing functionality in IoManager and the respective backends. Also make read/write mutually exclusive
 }
 
 /// Opens a file for reading/writing (as specified), with specified unix custom flags (see man page for open(2) - mainly of interest
@@ -386,6 +430,7 @@ pub fn file_len(file: &mut File) -> Result<u64, io::Error> {
 	}
 }
 
+// TODO: Test sequential and random writing, and test random reading. Also test automatically selected backends?
 #[cfg(test)]
 mod test {
     use super::{IoManager, filebuf, mmap, direct, AccessPattern};

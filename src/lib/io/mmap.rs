@@ -92,13 +92,15 @@ impl RandIoBackend for IoMmap {
 		if start >= self.mmap.len() as u64 {
 			return Err(BackendError::RegionOutsideFileBounds);
 		} else if start + data.len() as u64 > self.mmap.len() as u64 {
+			let start = start as usize;
 			let len = data.len() - start as usize;
 			let end = start as usize + len;
-			// (&self.mmap[start..end])
-			todo!() // TODO
+			(&mut self.mmap[start..end]).copy_from_slice(&data[start..(start + len)]);
 		} else {
-			todo!()
+			self.mmap.copy_from_slice(data);
 		}
+
+		Ok(())
 	}
 }
 

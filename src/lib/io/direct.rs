@@ -1,4 +1,4 @@
-use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom, Write}};
+use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom, Write}, os::unix::fs::FileExt};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
@@ -100,7 +100,10 @@ impl<'a> RandIoBackend for IoDirect<'a> {
 	}
 
 	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError> {
-		todo!() // TODO
+		// BUG: Will subvert expectations by extending the file and this is also Linux exclusive
+		self.file.write_at(data, start).map_err(|e| BackendError::IoError(e))?;
+
+		Ok(())
 	}
 }
 
