@@ -7,6 +7,7 @@ const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
+	eprintln!("This example is only supported on Linux")
 }
 
 /// This example is just a io_uring backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10

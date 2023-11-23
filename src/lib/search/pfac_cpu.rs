@@ -27,6 +27,11 @@ impl PfacCpu {
 		}
 	}
 
+	/// Searches the provided buffer, using the PfacTable this instance of PfacCpu was created with
+	///
+	/// This should normally be called on ordered contiguous buffers, one after the other, as it tracks matching progress
+	/// - to discard progress and correctly match on a non-contiguous or out of order buffer, call `discard_progress` between
+	/// calling this method
 	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Vec<Match> {
 		let matches: Arc<RwLock<Vec<Match>>> = Arc::new(RwLock::new(Vec::new()));
 		let pfac_cpu = &*self;
@@ -39,8 +44,9 @@ impl PfacCpu {
 				scope.execute(move || {
 					let mut i = 0;
 					loop {
-						if i > data.len() {
-							pfac_cpu.running_search_states.write().unwrap().push(PfacState { state, id, start_idx })
+						if i >= data.len() {
+							pfac_cpu.running_search_states.write().unwrap().push(PfacState { state, id, start_idx });
+							break;
 						}
 
 						if let Some(elem) = pfac_cpu.table.lookup(state, data[i]) {
@@ -102,6 +108,11 @@ impl PfacCpu {
 		// This looks scary because lots of unwrapping but it should never panic
 		Arc::into_inner(matches).unwrap().into_inner().unwrap()
 	}
+
+	/// Discards the tracked progress, allowing for correct searching of non-contiguous or out of order buffers
+	pub fn discard_progress(&mut self) { // NOTE: Could it be beneficial to return the progress?
+		self.running_search_states.write().unwrap().clear();
+	}
 }
 
 #[cfg(test)]
@@ -142,31 +153,32 @@ mod test {
 
 	#[test]
 	fn test_pfac_cpu_multi() {
-		let buffer = [ 1, 2, 3, 8, 4, 1, 2, 3, 1, 1, 2, 1, 2, 3, 0, 5, 9, 1, 2 ];
+		let buffer = [ 1, 2, 3, 4, 5, 8, 4, 1, 2, 3, 4, 5, 1, 1, 2, 1, 2, 3, 4, 5, 0, 5, 9, 1, 2 ];
 
-		let pattern = &[1, 2, 3];
+		let pattern = &[1, 2, 3, 4, 5];
 		let pattern_id = match_id_hash_slice(pattern);
 
 		let pfac_table = PfacTableBuilder::new(true).with_pattern(pattern).build();
 		let mut pfac = PfacCpu::new(pfac_table);
-		let mut matches = pfac.search_next(&buffer[..6], 0);
-		matches.append(&mut pfac.search_next(&buffer[6..], 6));
+		let mut matches = pfac.search_next(&buffer[..8], 0);
+		matches.append(&mut pfac.search_next(&buffer[8..10], 8));
+		matches.append(&mut pfac.search_next(&buffer[10..], 10));
 
 		let expected = vec![
 			Match {
 				id: pattern_id,
 				start_idx: 0,
-				end_idx: 2
+				end_idx: 4
 			},
 			Match {
 				id: pattern_id,
-				start_idx: 5,
-				end_idx: 7
+				start_idx: 7,
+				end_idx: 11
 			},
 			Match {
 				id: pattern_id,
-				start_idx: 11,
-				end_idx: 13
+				start_idx: 15,
+				end_idx: 19
 			}
 		];
 

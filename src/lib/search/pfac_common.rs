@@ -3,12 +3,12 @@ use std::{hash::{Hash, Hasher}, collections::{HashMap, hash_map::DefaultHasher}}
 use self::ir::{NodeIR, ConnectionIR};
 
 mod ir {
-	#[derive(Debug)]
+	#[derive(Debug, PartialEq)]
 	pub struct NodeIR {
 		pub next_paths: Vec<ConnectionIR>,
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, PartialEq)]
 	pub struct ConnectionIR {
 		pub connecting_to_uuid: u32,
 		pub value: u8,
@@ -59,14 +59,11 @@ impl PfacTableBuilder {
 					if i == pattern.len() - 1 {
 						self.end_idx
 					} else if let Some(suffix_idx) = self.suffix_idx_map.get(&hash_suffix(suffix)) {
-						println!("Using cached suffix: {:?}", suffix);
 						*suffix_idx
 					} else {
-						println!("Checked for suffix: {:?}", suffix);
 						let new_node_idx = self.pat_ir.len() as u32;
 						self.pat_ir.push(NodeIR { next_paths: Vec::new() });
 						if self.do_suffix_opt {
-							println!("Caching suffix: {:?} => {}", suffix, new_node_idx);
 							self.suffix_idx_map.insert(hash_suffix(suffix), new_node_idx);
 						}
 						new_node_idx
@@ -99,10 +96,12 @@ impl PfacTable {
 
 #[cfg(test)]
 mod test {
+    use crate::lib::search::pfac_common::ir::{NodeIR, ConnectionIR};
+
     use super::PfacTableBuilder;
 
 	#[test]
-	fn print_pattern() {
+	fn test_ir_gen() {
 		let patterns: [&[u8]; 4] = [ &[ 45, 32, 23, 97 ], &[ 87, 34, 12 ], &[ 87, 45, 12 ], &[ 29, 45, 32, 23, 97 ] ];
 
 		let mut pb = PfacTableBuilder::new(true);
@@ -111,7 +110,81 @@ mod test {
 			pb.add_pattern(p);
 		}
 
-		println!("Resulting pattern IR: {:#?}", pb);
+		let expected_ir = [
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 2,
+						value: 45,
+					},
+					ConnectionIR {
+						connecting_to_uuid: 5,
+						value: 87,
+					},
+					ConnectionIR {
+						connecting_to_uuid: 7,
+						value: 29,
+					},
+				],
+			},
+			NodeIR {
+				next_paths: vec![],
+			},
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 3,
+						value: 32,
+					},
+				],
+			},
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 4,
+						value: 23,
+					},
+				],
+			},
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 1,
+						value: 97,
+					},
+				],
+			},
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 6,
+						value: 34,
+					},
+					ConnectionIR {
+						connecting_to_uuid: 6,
+						value: 45,
+					},
+				],
+			},
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 1,
+						value: 12,
+					},
+				],
+			},
+			NodeIR {
+				next_paths: vec![
+					ConnectionIR {
+						connecting_to_uuid: 2,
+						value: 45,
+					},
+				],
+			},
+		];
+
+		assert_eq!(pb.pat_ir, expected_ir)
 	}
 }
 
