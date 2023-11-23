@@ -41,6 +41,12 @@ impl PfacTableBuilder {
 		PfacTableBuilder { pat_ir: vec![start, end], start_idx: 0, end_idx: 1, do_suffix_opt, suffix_idx_map: HashMap::new() }
 	}
 
+	pub fn with_pattern(mut self, pattern: &[u8]) -> Self {
+		self.add_pattern(pattern);
+
+		self
+	}
+
 	pub fn add_pattern(&mut self, pattern: &[u8]) {
 		let mut node_idx = self.start_idx as usize;
 
