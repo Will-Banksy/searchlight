@@ -1,10 +1,16 @@
 use std::time::Instant;
 
+#[cfg(target_os = "linux")]
 use searchlight::lib::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, io_uring::{self, DEFAULT_URING_READ_SIZE}, AccessPattern};
 
 const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 
+#[cfg(not(target_os = "linux"))]
+fn main() {
+}
+
 /// This example is just a io_uring backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10
+#[cfg(target_os = "linux")]
 fn main() {
 	let mut ioman = IoManager::new();
 
