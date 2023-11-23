@@ -1,4 +1,4 @@
-use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom, Write}, os::unix::fs::FileExt};
+use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom, Write}};
 
 use crate::lib::io::DEFAULT_ALIGNMENT;
 
@@ -19,9 +19,9 @@ impl<'a> IoDirect<'a> {
 	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, req_block_size: u64) -> Result<Self, BackendError> {
 		let custom_flags = {
 			#[cfg(target_os = "linux")]
-			{ libc::O_DIRECT }
+			{ Some(libc::O_DIRECT) }
 			#[cfg(not(target_os = "linux"))]
-			{ 0 }
+			{ None }
 		};
 
 		let mut file = super::open_with(file_path, read, write, access_pattern, custom_flags).map_err(|e| BackendError::IoError(e))?;
@@ -80,30 +80,66 @@ impl<'a> SeqIoBackend for IoDirect<'a> {
 
 impl<'a> RandIoBackend for IoDirect<'a> {
 	fn read_region<'b>(&mut self, start: u64, end: u64, f: Box<dyn FnOnce(&[u8]) + 'b>) -> Result<(), BackendError> {
-		if end > self.file_len || start >= end || (end - start) > self.buf.len() as u64 {
-			return Err(BackendError::RegionOutsideFileBounds)
+		let mut read_len = end as usize - start as usize;
+
+		// Do some bounds checking
+		if read_len > self.buf.len() {
+			return Err(BackendError::RegionOutsideBufferBounds);
 		}
-		if end == start {
-			return Err(BackendError::ZeroRangeSpecified)
+		if start >= end {
+			return Err(BackendError::ZeroRangeSpecified);
+		}
+		if start >= self.file_len {
+			return Err(BackendError::RegionOutsideFileBounds);
 		}
 
-		let prev_cursor = self.cursor;
+		// Truncate the number of bytes to be read if necessary
+		if end > self.file_len {
+			read_len = (self.file_len - start) as usize;
+		}
+
+		// Set the file cursor to the read position
 		self.file.seek(SeekFrom::Start(start)).map_err(|e| BackendError::IoError(e))?;
 
-		let bytes_read = self.file.read(self.buf).map_err(|e| BackendError::IoError(e))?;
+		// Read the bytes into the stored buffer
+		let bytes_read = self.file.read(&mut self.buf[..read_len]).map_err(|e| BackendError::IoError(e))?;
 
+		// Call f with a reference to the buffer
 		f(&self.buf[0..bytes_read]);
 
-		self.file.seek(SeekFrom::Start(prev_cursor)).map_err(|e| BackendError::IoError(e))?;
+		// Reset the file cursor to the stored cursor
+		self.file.seek(SeekFrom::Start(self.cursor)).map_err(|e| BackendError::IoError(e))?;
 
 		Ok(())
 	}
 
-	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError> {
-		// BUG: Will subvert expectations by extending the file and this is also Linux exclusive
-		self.file.write_at(data, start).map_err(|e| BackendError::IoError(e))?;
+	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<u64, BackendError> {
+		let end = start + data.len() as u64;
+		let mut write_len = data.len();
 
-		Ok(())
+		// Do some bounds checking
+		if start >= end {
+			return Err(BackendError::ZeroRangeSpecified);
+		}
+		if start >= self.file_len {
+			return Err(BackendError::RegionOutsideFileBounds);
+		}
+
+		// Truncate the number of bytes to be written if necessary
+		if end > self.file_len {
+			write_len = (self.file_len - start) as usize;
+		}
+
+		// Set the file cursor to the write position
+		self.file.seek(SeekFrom::Start(start)).map_err(|e| BackendError::IoError(e))?;
+
+		// Write the truncated number of bytes
+		let bytes_written = self.file.write(&data[..write_len]).map_err(|e| BackendError::IoError(e))?;
+
+		// Reset the file cursor to the stored cursor position
+		self.file.seek(SeekFrom::Start(self.cursor)).map_err(|e| BackendError::IoError(e))?;
+
+		Ok(bytes_written as u64)
 	}
 }
 

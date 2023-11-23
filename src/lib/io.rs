@@ -36,39 +36,18 @@ pub trait SeqIoBackend: IoBackend {
 }
 
 pub trait RandIoBackend: IoBackend {
-	/// Read a region of the file, calling the closure with the read region as a slice, or returning an Err if an error occurred.
-	/// Attempting to read a region partially or completely outside of the file address space is considered an error. Additionally, if the backend
-	/// is unable to provide the entire region as a slice (such as the case of the region size exceeding the block size for a buffered reader),
-	/// this is also considered an error. Before calling this function, be aware of the block size as reported by the backend, and on buffered backends
-	/// don't try to read more than that.
+	/// Read a region of the file, calling the closure with the read region as a slice, or returning an Err if an error occurred. The read region
+	/// will be truncated to fit inside file bounds if necessary. Attempting to read a region completely outside of the file address space is
+	/// considered an error. Additionally, if the backend is unable to provide the entire region as a slice (such as the case of the region size
+	/// exceeding the block size for a buffered reader), this is also considered an error. Before calling this function, be aware of the block
+	/// size as reported by the backend, and on buffered backends don't try to read more than that.
 	///
 	/// This function uses a closure to allow the implementor to have more control over the lifetime and usage of the slice
 	fn read_region<'a>(&mut self, start: u64, end: u64, f: Box<dyn FnOnce(&[u8]) + 'a>) -> Result<(), BackendError>;
 
-	/// Read a region of the file, calling the closure with the read region as a slice, or returning an Err if an error occurred.
-	/// This function is more lenient with what it considers errors - Attempting to read a region partially outside of the file
-	/// address space is not considered an error: The read region is truncated to fit within the file address space where possible.
-	/// Attempting to read a region completely outside the file address space however is still treated as an error
-	///
-	/// This function is implemented automatically in terms of backend_info and read_region.
-	fn read_region_truncated<'a>(&mut self, start: u64, mut end: u64, f: Box<dyn FnOnce(&[u8]) + 'a>) -> Result<(), BackendError> {
-		let info = self.backend_info();
-
-		if end > info.file_len {
-			end = info.file_len;
-		}
-
-		match self.read_region(start, end, Box::new(|block| {
-			f(block)
-		})) {
-			Err(e) => Err(e),
-			Ok(_) => Ok(())
-		}
-	}
-
 	/// Write the specified data to the open file at the specified index. Written data will be truncated to fit within file bounds -
-	/// if the specified start position is >= file length, then no data will be written
-	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<(), BackendError>;// TODO: Implement in backends
+	/// if the specified start position is >= file length, then no data will be written and an error will be returned
+	fn write_region(&mut self, start: u64, data: &[u8]) -> Result<u64, BackendError>;
 }
 
 pub trait RandSeqIoBackend: RandIoBackend + SeqIoBackend {}
@@ -81,7 +60,9 @@ pub enum BackendError {
 	RegionOutsideFileBounds,
 	ZeroRangeSpecified,
 	ThreadSendRecvError(String),
-	UnsupportedOperation
+	UnsupportedOperation,
+	InvalidOperation,
+	RegionOutsideBufferBounds
 }
 
 impl ToString for BackendError {
@@ -91,7 +72,9 @@ impl ToString for BackendError {
 			BackendError::RegionOutsideFileBounds => format!("Specified region outside of file bounds"),
 			BackendError::ZeroRangeSpecified => format!("Attempting to read zero bytes is an error"),
 			BackendError::ThreadSendRecvError(e_str) => format!("Failed to communicate with other thread: {}", e_str),
-			BackendError::UnsupportedOperation => format!("Operation is unsupported by this backend")
+			BackendError::UnsupportedOperation => format!("Operation is unsupported by this backend"),
+			BackendError::InvalidOperation => format!("Requested operation is invalid (are you attempting to write to a file opened in read-only mode?)"),
+			BackendError::RegionOutsideBufferBounds => format!("Requested operation size cannot fit into backend buffers, perhaps query the buffer size and try with a smaller size")
 		}
 	}
 }
@@ -298,7 +281,7 @@ impl IoManager {
 					GenIoBackend::Seq(_) => Err(IoManagerError::InvalidOperation("I/O backend does not support random access".to_string())),
 					GenIoBackend::RandSeq(rand_backend) => {
 						let mut r = None;
-						rand_backend.read_region_truncated(start, end, Box::new(|block_opt| {
+						rand_backend.read_region(start, end, Box::new(|block_opt| {
 							r = Some(f(block_opt))
 						})).map_err(|e| IoManagerError::BackendError(e))?;
 						// unwrap here should never panic - `f` should always be called if an error was not returned, in which case it returns early
@@ -306,7 +289,7 @@ impl IoManager {
 					},
 					GenIoBackend::Rand(rand_backend) => {
 						let mut r = None;
-						rand_backend.read_region_truncated(start, end, Box::new(|block_opt| {
+						rand_backend.read_region(start, end, Box::new(|block_opt| {
 							r = Some(f(block_opt))
 						})).map_err(|e| IoManagerError::BackendError(e))?;
 						// unwrap here should never panic - `f` should always be called if an error was not returned, in which case it returns early
@@ -388,14 +371,16 @@ impl IoManager {
 /// Opens a file for reading/writing (as specified), with specified unix custom flags (see man page for open(2) - mainly of interest
 /// is the O_DIRECT flag) and informing the OS to optimise file reading for the specified access pattern (last two are currently only
 /// implemented on Linux)
-pub fn open_with(path: &str, read: bool, write: bool, access_pattern: AccessPattern, custom_flags: i32) -> Result<File, io::Error> {
+pub fn open_with(path: &str, read: bool, write: bool, access_pattern: AccessPattern, custom_flags: Option<i32>) -> Result<File, io::Error> {
 	let mut open_opts = OpenOptions::new();
 	open_opts.read(read);
 	open_opts.write(write);
 	open_opts.create(write);
 	#[cfg(target_os = "linux")]
 	{
-		open_opts.custom_flags(custom_flags);
+		if let Some(custom_flags) = custom_flags {
+			open_opts.custom_flags(custom_flags);
+		}
 	}
 
 	let file = open_opts.open(path);
@@ -460,7 +445,7 @@ mod test {
 
 		ioman.open_with(path, true, false, {
 			super::GenIoBackend::Seq(
-				mmap::IoMmap::new(path, true, false, AccessPattern::Seq, block_size).map(|io_filebuf| Box::new(io_filebuf)).expect("Failed to open test_data/io_test.dat")
+				mmap::IoMmap::new(path, true, false, AccessPattern::Seq, block_size).map(|io_mmap| Box::new(io_mmap)).expect("Failed to open test_data/io_test.dat")
 			)
 		});
 
@@ -479,7 +464,7 @@ mod test {
 
 		ioman.open_with(path, true, false, {
 			super::GenIoBackend::Seq(
-				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, block_size, block_size).map(|io_filebuf| Box::new(io_filebuf)).expect("Failed to open test_data/io_test.dat")
+				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, block_size, block_size).map(|io_uring| Box::new(io_uring)).expect("Failed to open test_data/io_test.dat")
 			)
 		});
 
@@ -495,7 +480,7 @@ mod test {
 
 		ioman.open_with(path, true, false, {
 			super::GenIoBackend::Seq(
-				direct::IoDirect::new(path, true, false, AccessPattern::Seq, block_size).map(|io_filebuf| Box::new(io_filebuf)).expect("Failed to open test_data/io_test.dat")
+				direct::IoDirect::new(path, true, false, AccessPattern::Seq, block_size).map(|io_direct| Box::new(io_direct)).expect("Failed to open test_data/io_test.dat")
 			)
 		});
 

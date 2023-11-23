@@ -32,7 +32,7 @@ impl<'a, 'c> IoUring<'a, 'c> {
 	///
 	/// Note that the actual block size used may be changed
 	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, block_size: u64, read_size: u64) -> Result<Self, BackendError> {
-		let mut file = super::open_with(file_path, read, write, access_pattern, libc::O_DIRECT).map_err(|e| BackendError::IoError(e))?;
+		let mut file = super::open_with(file_path, read, write, access_pattern, Some(libc::O_DIRECT)).map_err(|e| BackendError::IoError(e))?;
 		let file_len = file_len(&mut file).map_err(|e| BackendError::IoError(e))?;
 
 		// Need aligned memory of a size a multiple of the alignment for O_DIRECT - round upwards
@@ -162,6 +162,9 @@ impl<'a, 'c> SeqIoBackend for IoUring<'a, 'c> where 'a: 'c {
 
 		// Copy the data buffer into the write buffer
 		// NOTE: Eliminating this memcpy could be an optimisation strat for this backend
+		// - could maybe use a strategy like buffer swapping? Swap the input slice ptr with the buffered pointer? hm that'd be the same as
+		// taking ownership of the slice which isn't really possible at least without significant awkwardness
+		self.write_buffer.clear();
 		self.write_buffer.extend_from_slice(data);
 
 		// Need unsafe transmute cause rust doesn't allow self-referential structs

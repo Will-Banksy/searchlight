@@ -39,9 +39,6 @@ fn io_bench(c: &mut Criterion) {
 	group.bench_with_input("direct", &block_size, bench_direct);
 
 	group.finish();
-
-	// TODO: Create benchmark to test best read size for io_uring backend
-	// let mut io_uring_bench = c.bench_function("io_uring_readlen", bench_io_uring_readlen);
 }
 
 fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
@@ -76,7 +73,7 @@ fn bench_mmap(b: &mut Bencher, block_size: &u64) {
 
 		ioman.open_with(path, true, false, {
 			GenIoBackend::Seq(
-				mmap::IoMmap::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+				mmap::IoMmap::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_mmap| Box::new(io_mmap)).expect(&format!("Failed to open {}", path))
 			)
 		});
 
@@ -93,7 +90,7 @@ fn bench_io_uring(b: &mut Bencher, block_size: &u64) {
 
 		ioman.open_with(path, true, false, {
 			GenIoBackend::Seq(
-				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, *block_size, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, *block_size, *block_size).map(|io_uring| Box::new(io_uring)).expect(&format!("Failed to open {}", path))
 			)
 		});
 
@@ -109,7 +106,7 @@ fn bench_direct(b: &mut Bencher, block_size: &u64) {
 
 		ioman.open_with(path, true, false, {
 			GenIoBackend::Seq(
-				direct::IoDirect::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+				direct::IoDirect::new(path, true, false, AccessPattern::Seq, *block_size).map(|io_direct| Box::new(io_direct)).expect(&format!("Failed to open {}", path))
 			)
 		});
 
@@ -148,7 +145,7 @@ fn bench_io_uring_readlen(b: &mut Bencher, read_len: &u64) {
 
 		ioman.open_with(path, true, false, {
 			GenIoBackend::Seq(
-				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, DEFAULT_BLOCK_SIZE, *read_len).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+				io_uring::IoUring::new(path, true, false, AccessPattern::Seq, DEFAULT_BLOCK_SIZE, *read_len).map(|io_uring| Box::new(io_uring)).expect(&format!("Failed to open {}", path))
 			)
 		});
 

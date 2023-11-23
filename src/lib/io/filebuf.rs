@@ -6,7 +6,7 @@ use crate::lib::io::DEFAULT_ALIGNMENT;
 
 use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, BackendError, AccessPattern};
 
-const NUM_BLOCKS: usize = 3; // Controls how many blocks are loaded at once
+const NUM_BLOCKS: usize = 2; // Controls how many blocks are loaded at once
 
 /// Messages sent from the preloader thread
 enum FromPreloaderMsg {
@@ -41,9 +41,9 @@ impl<'a> IoFileBuf<'a> {
 	pub fn new(file_path: &str, read: bool, write: bool, access_pattern: AccessPattern, block_size: u64) -> Result<Self, BackendError> {
 		let custom_flags = {
 			#[cfg(target_os = "linux")]
-			{ libc::O_DIRECT }
+			{ Some(libc::O_DIRECT) }
 			#[cfg(not(target_os = "linux"))]
-			{ 0 }
+			{ None }
 		};
 
 		let mut file = super::open_with(file_path, read, write, access_pattern, custom_flags).map_err(|e| BackendError::IoError(e))?;
@@ -206,7 +206,9 @@ impl SeqIoBackend for IoFileBuf<'_> {
 	}
 
 	fn write_next(&mut self, _: &[u8]) -> Result<(), BackendError> {
-		todo!() // Probably unnecessary to implement for now - Write performance and therefore testing a variety of write backends isn't as crucial as it is for reading
+		// Probably unnecessary to implement for now - Write performance and therefore testing a variety of write backends isn't as crucial as it is for reading
+		// Also - it'd have to do a memcpy anyway
+		todo!()
 	}
 }
 
