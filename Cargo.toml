@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 memmap = "0.7.0"
 scoped-thread-pool = "1.0.4"
+vulkano = "0.34.1"
 
 # Conditionally depend on libc on linux platforms
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -17,6 +18,9 @@ rio = "0.9.4"
 [dev-dependencies]
 criterion = "0.5.1"
 
+[profile.dev]
+opt-level = 1
+
 [[bench]]
-name = "io_bench"
+name = "search_bench"
 harness = false

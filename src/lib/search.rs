@@ -1,5 +1,8 @@
+use vulkano::VulkanError;
+
 pub mod pfac_common;
 pub mod pfac_cpu;
+pub mod pfac_gpu;
 
 #[derive(Debug, PartialEq)]
 pub struct Match {
@@ -51,4 +54,8 @@ pub fn match_id_hash_slice(slice: &[u8]) -> u64 {
 	}
 
 	hash
+}
+
+pub enum SearchError {
+	VulkanError(VulkanError)
 }
