@@ -92,6 +92,37 @@ impl PfacTable {
 	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&PfacTableElem> {
 		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value)
 	}
+
+	/// Encodes the pfac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value.
+	/// Each row is resized to be the same length, so the resulting Vec can be indexed as (i * row_len, j) where i is the row index, and j is the column index.
+	///
+	/// Returns the u64 Vec and the length of each row
+	pub fn encode(&self) -> (Vec<u64>, usize) {
+		// Compute the maximum row size
+		let rlen = self.table.iter().fold(0, |acc, elem| if elem.len() > acc { elem.len() } else { acc });
+
+		let mut accum = vec![0; self.table.len() * rlen];
+
+		let mut i = 0;
+		for row in &self.table {
+			let accum_idx = i * rlen;
+
+			// Encode the row by shifting each element's next state to the left 32 places and or'ing it with the element's value
+			let row_encoded: Vec<u64> = row.iter().map(|e| ((e.next_state as u64) << 32) | e.value as u64).collect();
+
+			// Write the encoded row to the corresponding range of positions in accum
+			let mut j = accum_idx;
+			while j < (i + 1) * rlen {
+				accum[accum_idx + j] = row_encoded[j];
+
+				j += 1;
+			}
+
+			i += 1;
+		}
+
+		(accum, rlen)
+	}
 }
 
 #[cfg(test)]

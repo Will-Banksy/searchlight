@@ -22,5 +22,6 @@ criterion = "0.5.1"
 opt-level = 1
 
 [[bench]]
+# TODO: Unify benchmarking harness
 name = "search_bench"
 harness = false

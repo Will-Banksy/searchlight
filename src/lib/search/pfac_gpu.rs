@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
-use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, Validated, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo}};
+use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, Validated, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo}, memory::{allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocator, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, AllocateBufferError}, pipeline::layout, NonZeroDeviceSize};
 
-use crate::Error;
+use crate::lib::error::Error;
 
 use super::pfac_common::PfacTable;
+
+const UPLOAD_BUFFER_SIZE: u64 = 1024 * 1024 * 1024;
 
 struct PfacGpu {
 }
@@ -31,6 +33,22 @@ impl PfacGpu {
 		// We requested one queue, and Device::new returns an interator over queues, so extract & unwrap queue
 		let vkqueues = vkqueues.next().expect("No vulkan queues were found");
 
+		let malloc = Arc::new(StandardMemoryAllocator::new_default(Arc::clone(&vkdev)));
+
+		let upload_buffer = Buffer::new(
+			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+			BufferCreateInfo {
+				usage: BufferUsage::TRANSFER_SRC,
+				..Default::default()
+			}, AllocationCreateInfo {
+				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				..Default::default()
+			},
+			DeviceLayout::new(NonZeroDeviceSize::new(UPLOAD_BUFFER_SIZE).unwrap(), DeviceAlignment::new(64).unwrap()).expect("Unable to create device layout for upload buffer")
+		).map_err(Error::from)?;
+
+		// TODO: table buffer (using encode function), storing state
+
 		Ok(PfacGpu {})
 	}
 
@@ -44,7 +62,7 @@ impl PfacGpu {
 					.position(|(_, q)| {
 						q.queue_flags.contains(queue_flags)
 					})
-					.map(|i| (p.clone(), i as u32))
+					.map(|i| (Arc::clone(&p), i as u32))
 			})
 			.min_by_key(|(p, _)| match p.properties().device_type { // Order by device type. Preferably we want to use a discrete gpu
 				PhysicalDeviceType::DiscreteGpu => 0,
