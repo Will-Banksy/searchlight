@@ -1,0 +1,30 @@
+#version 450
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer InputBuffer {
+	uint data[];
+};
+
+layout(set = 0, binding = 1) buffer PfacTableBuffer {
+	uint pfac_table[];
+};
+
+layout(set = 0, binding = 2) buffer OutputBuffer {
+	uint out_data[];
+};
+
+// Fetch the byte from data[] with specified index, treating data[] as an array of bytes
+uint data_fetch(uint idx) {
+	uint idx_uint = idx / 4;
+	uint dat_uint = data[idx_uint];
+	idx_uint *= 4;
+	uint idx_byte = idx - idx_uint;
+	idx_byte = 3 - idx_byte;
+	return ((dat_uint >> idx_byte) & 255);
+}
+
+void main() {
+	uint idx = gl_GlobalInvocationID.x;
+	out_data[0] = data_fetch(idx);
+}

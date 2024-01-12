@@ -96,8 +96,8 @@ impl PfacTable {
 	/// Encodes the pfac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value.
 	/// Each row is resized to be the same length, so the resulting Vec can be indexed as (i * row_len, j) where i is the row index, and j is the column index.
 	///
-	/// Returns the u64 Vec and the length of each row
-	pub fn encode(&self) -> (Vec<u64>, usize) {
+	/// Returns the u64 Vec, with the first element being the length of the rows
+	pub fn encode(&self) -> Vec<u64> {
 		// Compute the maximum row size
 		let rlen = self.table.iter().fold(0, |acc, elem| if elem.len() > acc { elem.len() } else { acc });
 
@@ -121,7 +121,9 @@ impl PfacTable {
 			i += 1;
 		}
 
-		(accum, rlen)
+		accum.insert(0, rlen as u64);
+
+		accum
 	}
 }
 
