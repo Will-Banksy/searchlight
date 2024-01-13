@@ -1,30 +1,47 @@
 #version 450
 
+#extension GL_EXT_debug_printf : enable
+
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) buffer InputBuffer {
-	uint data[];
+	uint in_data[];
 };
 
-layout(set = 0, binding = 1) buffer PfacTableBuffer {
-	uint pfac_table[];
-};
+// layout(set = 0, binding = 1) buffer PfacTableBuffer {
+// 	uint pfac_table[];
+// };
 
 layout(set = 0, binding = 2) buffer OutputBuffer {
 	uint out_data[];
 };
 
-// Fetch the byte from data[] with specified index, treating data[] as an array of bytes
-uint data_fetch(uint idx) {
-	uint idx_uint = idx / 4;
-	uint dat_uint = data[idx_uint];
-	idx_uint *= 4;
-	uint idx_byte = idx - idx_uint;
-	idx_byte = 3 - idx_byte;
-	return ((dat_uint >> idx_byte) & 255);
+// Read the byte from data[] with specified index, treating data[] as an array of bytes prefixed by an 8-byte length
+uint read(uint idx) {
+	idx = idx + 4;
+	uint uint_idx = idx / 4;
+	uint uint_dat = in_data[uint_idx];
+	uint byte_idx = (idx - (uint_idx * 4));
+	return ((uint_dat >> (byte_idx * 8)) & 0xff);
+}
+
+void write(uint idx, uint val) {
+	val &= 0xff;
+	uint uint_idx = idx / 4;
+	uint byte_idx = (idx - (uint_idx * 4));
+	uint shift_amt = byte_idx * 8;
+
+	uint current_data = (out_data[uint_idx] >> shift_amt) & 255;
+	out_data[uint_idx] ^= (current_data << shift_amt); // NOTE: This may need to be made atomic too
+	atomicOr(out_data[uint_idx], (val << shift_amt));
+
+	// debugPrintfEXT("wrote %u to uint_idx %u (byte_idx %u), uint result: %u (previous: %u)\n", val, uint_idx, byte_idx, out_data[uint_idx], current_data);
 }
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	out_data[0] = data_fetch(idx);
+	if(idx < in_data[0]) {
+		// debugPrintfEXT("idx: %u\n", idx);
+		write(idx, read(idx));
+	}
 }

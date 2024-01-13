@@ -1,11 +1,13 @@
-use vulkano::{VulkanError, LoadingError, ValidationError, Validated, memory::allocator::MemoryAllocatorError, buffer::AllocateBufferError};
+use vulkano::{VulkanError, LoadingError, ValidationError, Validated, memory::allocator::MemoryAllocatorError, buffer::AllocateBufferError, command_buffer::CommandBufferExecError};
 
+#[derive(Debug)]
 pub enum Error {
 	VulkanLoadError(LoadingError),
 	VulkanError(VulkanError),
 	VulkanValidationError(Box<ValidationError>),
 	NoVulkanImplementations,
-	VulkanMallocError(MemoryAllocatorError)
+	VulkanMallocError(MemoryAllocatorError),
+	VulkanCmdExecError(CommandBufferExecError)
 }
 
 macro_rules! impl_from_for_variant {
@@ -22,6 +24,7 @@ impl_from_for_variant!(Error::VulkanError, VulkanError);
 impl_from_for_variant!(Error::VulkanLoadError, LoadingError);
 impl_from_for_variant!(Error::VulkanValidationError, Box<ValidationError>);
 impl_from_for_variant!(Error::VulkanMallocError, MemoryAllocatorError);
+impl_from_for_variant!(Error::VulkanCmdExecError, CommandBufferExecError);
 
 impl<T> From<Validated<T>> for Error where T: Into<Error> {
     fn from(value: Validated<T>) -> Self {
