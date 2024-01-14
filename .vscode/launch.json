@@ -1,0 +1,250 @@
+{
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in library 'searchlight'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--lib",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "searchlight",
+					"kind": "lib"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug executable 'searchlight'",
+			"cargo": {
+				"args": [
+					"build",
+					"--bin=searchlight",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "searchlight",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in executable 'searchlight'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--bin=searchlight",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "searchlight",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug example 'io_uring_bench'",
+			"cargo": {
+				"args": [
+					"build",
+					"--example=io_uring_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "io_uring_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in example 'io_uring_bench'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--example=io_uring_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "io_uring_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug example 'filebuf_bench'",
+			"cargo": {
+				"args": [
+					"build",
+					"--example=filebuf_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "filebuf_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in example 'filebuf_bench'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--example=filebuf_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "filebuf_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug example 'mmap_bench'",
+			"cargo": {
+				"args": [
+					"build",
+					"--example=mmap_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "mmap_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in example 'mmap_bench'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--example=mmap_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "mmap_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug example 'direct_bench'",
+			"cargo": {
+				"args": [
+					"build",
+					"--example=direct_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "direct_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in example 'direct_bench'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--example=direct_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "direct_bench",
+					"kind": "example"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug benchmark 'search_bench'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--bench=search_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "search_bench",
+					"kind": "bench"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug benchmark 'io_bench'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--bench=io_bench",
+					"--package=searchlight"
+				],
+				"filter": {
+					"name": "io_bench",
+					"kind": "bench"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		}
+	]
+}

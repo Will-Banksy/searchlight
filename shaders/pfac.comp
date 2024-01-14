@@ -1,47 +1,113 @@
 #version 450
 
 #extension GL_EXT_debug_printf : enable
+#extension GL_EXT_shader_8bit_storage : enable
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) buffer InputBuffer {
-	uint in_data[];
+layout(set = 0, binding = 0) readonly buffer InputBuffer {
+	uint8_t in_data[];
 };
 
-// layout(set = 0, binding = 1) buffer PfacTableBuffer {
-// 	uint pfac_table[];
-// };
+layout(set = 0, binding = 1) buffer PfacTableBuffer {
+	uint pfac_table[];
+};
 
 layout(set = 0, binding = 2) buffer OutputBuffer {
 	uint out_data[];
 };
 
-// Read the byte from data[] with specified index, treating data[] as an array of bytes prefixed by an 8-byte length
-uint read(uint idx) {
-	idx = idx + 4;
-	uint uint_idx = idx / 4;
-	uint uint_dat = in_data[uint_idx];
-	uint byte_idx = (idx - (uint_idx * 4));
-	return ((uint_dat >> (byte_idx * 8)) & 0xff);
+// ===
+
+uint read_in(uint idx) {
+	return uint(in_data[idx + 4]);
 }
 
-void write(uint idx, uint val) {
-	val &= 0xff;
-	uint uint_idx = idx / 4;
-	uint byte_idx = (idx - (uint_idx * 4));
-	uint shift_amt = byte_idx * 8;
-
-	uint current_data = (out_data[uint_idx] >> shift_amt) & 255;
-	out_data[uint_idx] ^= (current_data << shift_amt); // NOTE: This may need to be made atomic too
-	atomicOr(out_data[uint_idx], (val << shift_amt));
-
-	// debugPrintfEXT("wrote %u to uint_idx %u (byte_idx %u), uint result: %u (previous: %u)\n", val, uint_idx, byte_idx, out_data[uint_idx], current_data);
+uint in_data_len() {
+	return uint(in_data[0]) | (uint(in_data[1]) << 8) | (uint(in_data[2]) << 16) | (uint(in_data[3]) << 24);
 }
+
+bool pfac_table_lookup(uint state, uint value, out uint next_state) {
+	// The pfac table len is u64 but we're going to assume it's not larger than u32 cause otherwise we can't handle it anyway
+	uint pfac_table_rlen = pfac_table[0];
+	uint row_idx = (state * pfac_table_rlen * 2) + 2;
+	uint row_len = pfac_table[row_idx];
+
+	// debugPrintfEXT("row_idx: %u, row_len: %u\n", row_idx, row_len);
+
+	for(uint i = 2; i <= row_len * 2; i += 2) {
+		uint idx = i + row_idx;
+		uint elem_value = pfac_table[idx];
+		uint elem_next_state = pfac_table[idx + 1];
+
+		if(elem_value == value) {
+			next_state = elem_next_state;
+			return true;
+		}
+
+		// debugPrintfEXT("pfac_table[%u]: { next_state: %u, value: %u } (len of this row: %u)\n", idx, next_state, value, row_len);
+	}
+
+	// debugPrintfEXT("pfac_table_rlen: %u\n", pfac_table_rlen);
+
+	next_state = 0;
+	return false;
+}
+
+bool pfac_table_is_terminator(uint state) {
+	// The pfac table len is u64 but we're going to assume it's not larger than u32 cause otherwise we can't handle it anyway
+	uint pfac_table_rlen = pfac_table[0];
+	uint row_idx = (state * pfac_table_rlen * 2) + 2;
+	uint row_len = pfac_table[row_idx];
+
+	return row_len == 0;
+}
+
+// start_idx and end_idx are relative to the current in_data, id0 is the most significant part of id
+void write_match(uint id0, uint id1, uint start_idx, uint end_idx) {
+	uint idx = atomicAdd(out_data[0], 1);
+	idx *= 4; // idx * data size in uints
+	idx += 1; // offset from length at start
+	uint out_data_len = 1024 * 1024;
+	idx -= uint(idx > out_data_len) * (idx - out_data_len); // Branchless programming!
+	// debugPrintfEXT("Writing match at idx: %u\n", idx);
+	out_data[idx] = id0;
+	out_data[idx + 1] = id1;
+	out_data[idx + 2] = start_idx;
+	out_data[idx + 3] = end_idx;
+}
+
+// ===
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if(idx < in_data[0]) {
-		// debugPrintfEXT("idx: %u\n", idx);
-		write(idx, read(idx));
+	uint in_data_len = in_data_len();
+
+	uint state = 0;
+	uint start_idx = idx;
+	uint id0 = 0; // TODO: Match id
+	uint id1 = 0;
+
+	while(true) {
+		if(idx >= in_data_len) {
+			// TODO: Save running states if we are at/past the end of the input data
+			break;
+		}
+
+		uint next_state = 0;
+		uint data_idx = read_in(idx);
+		if(pfac_table_lookup(state, data_idx, next_state)) {
+			state = next_state;
+			idx += 1;
+			id0 += 1; // TODO: Match id
+			id1 += 1;
+			debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
+		} else if(pfac_table_is_terminator(state)) {
+			debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u\n", start_idx, idx - 1);
+			write_match(id0, id1, start_idx, idx - 1);
+			break;
+		} else {
+			break;
+		}
 	}
 }

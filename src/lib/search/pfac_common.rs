@@ -24,6 +24,7 @@ pub struct PfacTableBuilder {
 	suffix_idx_map: HashMap<u64, u32>
 }
 
+#[derive(Debug)]
 pub struct PfacTableElem {
 	pub next_state: u32,
 	pub value: u8
@@ -84,6 +85,8 @@ impl PfacTableBuilder {
 			})
 			.collect();
 
+		println!("PfacTable: {:?}", table);
+
 		PfacTable { table }
 	}
 }
@@ -93,13 +96,13 @@ impl PfacTable {
 		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value)
 	}
 
-	/// Encodes the pfac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value.
+	/// Encodes the pfac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value, prefixing each Vec with a u64 of the Vec's length.
 	/// Each row is resized to be the same length, so the resulting Vec can be indexed as (i * row_len, j) where i is the row index, and j is the column index.
 	///
 	/// Returns the u64 Vec, with the first element being the length of the rows
 	pub fn encode(&self) -> Vec<u64> {
-		// Compute the maximum row size
-		let rlen = self.table.iter().fold(0, |acc, elem| if elem.len() > acc { elem.len() } else { acc });
+		// Compute the maximum row size, +1 for each row needs to indicate it's length
+		let rlen = self.table.iter().fold(0, |acc, elem| if elem.len() > acc { elem.len() } else { acc }) + 1;
 
 		let mut accum = vec![0; self.table.len() * rlen];
 
@@ -108,11 +111,12 @@ impl PfacTable {
 			let accum_idx = i * rlen;
 
 			// Encode the row by shifting each element's next state to the left 32 places and or'ing it with the element's value
-			let row_encoded: Vec<u64> = row.iter().map(|e| ((e.next_state as u64) << 32) | e.value as u64).collect();
+			let mut row_encoded: Vec<u64> = row.iter().map(|e| ((e.next_state as u64) << 32) | e.value as u64).collect();
+			row_encoded.insert(0, row_encoded.len() as u64);
 
 			// Write the encoded row to the corresponding range of positions in accum
-			let mut j = accum_idx;
-			while j < (i + 1) * rlen {
+			let mut j = 0;
+			while j < (i + 1) * rlen && j < row_encoded.len() {
 				accum[accum_idx + j] = row_encoded[j];
 
 				j += 1;

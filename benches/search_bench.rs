@@ -33,7 +33,7 @@ fn pfac_cpu_c1(b: &mut Bencher) {
 	}, criterion::BatchSize::LargeInput);
 }
 
-fn pfac_cpu_c2(b: &mut Bencher) {
+fn _pfac_cpu_c2(b: &mut Bencher) {
 	b.iter_batched(|| {
 		todo!() // setup
 	}, |_| {
