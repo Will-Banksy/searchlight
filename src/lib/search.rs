@@ -1,5 +1,6 @@
 pub mod pfac_common;
 pub mod pfac_cpu;
+#[cfg(feature = "gpu")]
 pub mod pfac_gpu;
 
 #[derive(Debug, PartialEq)]

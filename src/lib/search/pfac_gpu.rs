@@ -11,7 +11,7 @@ use std::{sync::Arc, ops::DerefMut, io::Write, time::Duration};
 
 use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo, Features, Queue}, memory::{allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocator, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryAutoCommandBuffer}, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet}, sync::{self, GpuFuture}};
 
-use crate::lib::{error::Error, utils::chunk_iter::ToChunksExact};
+use crate::lib::{error::{Error, VulkanError}, utils::chunk_iter::ToChunksExact};
 
 use super::{pfac_common::PfacTable, Match};
 
@@ -37,7 +37,7 @@ impl PfacGpu {
 			// khr_shader_non_semantic_info: true,
 			// khr_8bit_storage: true,
 			..DeviceExtensions::default()
-		}, QueueFlags::COMPUTE).ok_or(Error::NoVulkanImplementations)?;
+		}, QueueFlags::COMPUTE).ok_or(VulkanError::NoVulkanImplementations)?;
 
 		println!("Using physical vulkan device: {} (type {:?})", vkphys.properties().device_name, vkphys.properties().device_type);
 
