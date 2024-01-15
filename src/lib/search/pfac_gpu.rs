@@ -48,6 +48,7 @@ impl PfacGpu {
 			}],
 			enabled_features: Features {
 				uniform_and_storage_buffer8_bit_access: true,
+				shader_int64: true,
 				..Default::default()
 			},
 			..Default::default()

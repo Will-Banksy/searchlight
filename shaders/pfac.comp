@@ -2,6 +2,7 @@
 
 #extension GL_EXT_debug_printf : enable
 #extension GL_EXT_shader_8bit_storage : enable
+#extension GL_ARB_gpu_shader_int64 : enable
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
@@ -16,6 +17,11 @@ layout(set = 0, binding = 1) buffer PfacTableBuffer {
 layout(set = 0, binding = 2) buffer OutputBuffer {
 	uint out_data[];
 };
+
+// ===
+
+const uint64_t FNV_OFFSET_BASIS = 0xcbf29ce484222325ul;
+const uint64_t FNV_PRIME = 0x100000001b3ul;
 
 // ===
 
@@ -63,18 +69,43 @@ bool pfac_table_is_terminator(uint state) {
 	return row_len == 0;
 }
 
-// start_idx and end_idx are relative to the current in_data, id0 is the most significant part of id
-void write_match(uint id0, uint id1, uint start_idx, uint end_idx) {
+// start_idx and end_idx are relative to the current in_data
+void write_match(uint64_t id, uint start_idx, uint end_idx) {
 	uint idx = atomicAdd(out_data[0], 1);
 	idx *= 4; // idx * data size in uints
 	idx += 1; // offset from length at start
 	uint out_data_len = 1024 * 1024;
 	idx -= uint(idx > out_data_len) * (idx - out_data_len); // Branchless programming!
 	// debugPrintfEXT("Writing match at idx: %u\n", idx);
-	out_data[idx] = id0;
-	out_data[idx + 1] = id1;
+	out_data[idx] = uint(id & 0x00000000ffffffff);
+	out_data[idx + 1] = uint((id >> 32) & 0x00000000ffffffff);
 	out_data[idx + 2] = start_idx;
 	out_data[idx + 3] = end_idx;
+}
+
+// Carry-less multiplication, simply discards the overflowing bits of the result
+uint64_t clmul(uint64_t x, uint64_t y) {
+	uint64_t accum = 0;
+	for(uint i = 0; i < 128; i++) {
+		if((x & 1ul) == 1) {
+			// NOTE: In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
+			accum += y;
+		}
+		x >>= 1ul;
+		x ^= x & (1ul << 127);
+		y <<= 1ul;
+		y ^= y & 1ul;
+	}
+
+	return accum;
+}
+
+uint64_t match_id_hash_init() {
+	return FNV_OFFSET_BASIS;
+}
+
+uint64_t match_id_hash_add(uint64_t hash, uint new_value) {
+	return clmul((hash ^ uint64_t(new_value)), FNV_PRIME);
 }
 
 // ===
@@ -85,8 +116,7 @@ void main() {
 
 	uint state = 0;
 	uint start_idx = idx;
-	uint id0 = 0; // TODO: Match id
-	uint id1 = 0;
+	uint64_t id = match_id_hash_init();
 
 	while(true) {
 		if(idx >= in_data_len) {
@@ -99,12 +129,11 @@ void main() {
 		if(pfac_table_lookup(state, data_idx, next_state)) {
 			state = next_state;
 			idx += 1;
-			id0 += 1; // TODO: Match id
-			id1 += 1;
-			debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
+			id = match_id_hash_add(id, data_idx);
+			// debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
 		} else if(pfac_table_is_terminator(state)) {
-			debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u\n", start_idx, idx - 1);
-			write_match(id0, id1, start_idx, idx - 1);
+			// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u\n", start_idx, idx - 1);
+			write_match(id, start_idx, idx - 1);
 			break;
 		} else {
 			break;

@@ -1,5 +1,3 @@
-use vulkano::VulkanError;
-
 pub mod pfac_common;
 pub mod pfac_cpu;
 pub mod pfac_gpu;
@@ -56,6 +54,36 @@ pub fn match_id_hash_slice(slice: &[u8]) -> u64 {
 	hash
 }
 
-pub enum SearchError {
-	VulkanError(VulkanError)
+/// Carry-less multiplication, simply discards the overflowing bits of the result
+#[allow(unused)]
+fn clmul(mut x: u64, mut y: u64) -> u64 {
+	let mut accum: u64 = 0;
+	for _ in 0..64 {
+		if x & 1 == 1 {
+			accum = accum.wrapping_add(y);
+		}
+		x >>= 1;
+		x ^= x & (1 << 63);
+		y <<= 1;
+		y ^= y & 1;
+	}
+
+	accum
+}
+
+#[cfg(test)]
+#[test]
+fn test_clmul() {
+	assert_eq!(clmul(FNV_OFFSET_BASIS, FNV_PRIME), (FNV_OFFSET_BASIS as u128 * FNV_PRIME as u128) as u64);
+
+	// let fnvob_simd = unsafe { std::mem::transmute(FNV_OFFSET_BASIS as u128) };//_mm_set_epi64x(0, FNV_OFFSET_BASIS as i64) };
+	// let fnvp_simd = unsafe { std::mem::transmute(FNV_PRIME as u128) };//_mm_set_epi64x(0, FNV_PRIME as i64) };
+
+	// println!("wrapping_mul:    {:#018x}", u64::wrapping_mul(FNV_OFFSET_BASIS, FNV_PRIME));
+	// println!("truncated *:     {:#018x}", (FNV_OFFSET_BASIS as u128 * FNV_PRIME as u128) as u64);
+	// println!("intrinsic clmul: {:#018x}", unsafe { std::mem::transmute::<__m128i, u128>(_mm_clmulepi64_si128::<8>(fnvob_simd, fnvp_simd)) } as u64);
+
+	// println!("non-truncated *: {:#034x}", (FNV_OFFSET_BASIS as u128 * FNV_PRIME as u128));
+
+	// println!("clmul:           {:#018x}", clmul(FNV_OFFSET_BASIS, FNV_PRIME));
 }

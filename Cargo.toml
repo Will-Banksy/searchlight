@@ -19,8 +19,8 @@ rio = "0.9.4"
 [dev-dependencies]
 criterion = "0.5.1"
 
-[profile.dev]
-opt-level = 1
+# [profile.dev]
+# opt-level = 1
 
 [[bench]]
 # TODO: Unify benchmarking harness
