@@ -17,6 +17,7 @@ use super::{pfac_common::PfacTable, Match};
 
 const UPLOAD_BUFFER_SIZE: u64 = (1024 * 1024) + 4;
 const OUTPUT_BUFFER_SIZE: u64 = 1024 * 1024;
+const STATE_BUFFER_SIZE: u64 = 1024; // If changing change in shader too
 
 pub struct PfacGpu {
 	vkdev: Arc<Device>,
@@ -27,6 +28,7 @@ pub struct PfacGpu {
 }
 
 impl PfacGpu {
+	/// Creates a new instance of PfacGpu, initialising Vulkan, and returning an Err if Vulkan was unable to be initialised
 	pub fn new(table: PfacTable) -> Result<Self, Error> {
 		// Initialise vulkan library and create vulkan instance
 		let vklib = VulkanLibrary::new().map_err(Error::from)?;
@@ -146,6 +148,38 @@ impl PfacGpu {
 			output_subbuffer_host_wlock.deref_mut().fill(0u8);
 		}
 
+		let state_buffer_host = Buffer::new(
+			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+			BufferCreateInfo {
+				usage: BufferUsage::TRANSFER_SRC,
+				..Default::default()
+			},
+			AllocationCreateInfo {
+				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				..Default::default()
+			},
+			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
+		).map_err(Error::from)?;
+
+		let state_buffer_device = Buffer::new(
+			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+			BufferCreateInfo {
+				usage: BufferUsage::UNIFORM_BUFFER | BufferUsage::TRANSFER_DST,
+				..Default::default()
+			},
+			AllocationCreateInfo {
+				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+				..Default::default()
+			},
+			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
+		).map_err(Error::from)?;
+
+		let state_subbuffer_host = Subbuffer::new(Arc::clone(&state_buffer_host));
+		{
+			let mut state_subbuffer_host_wlock = state_subbuffer_host.write().unwrap();
+			state_subbuffer_host_wlock.deref_mut().fill(0u8);
+		}
+
 		let shader = pfac_shader::load(Arc::clone(&vkdev)).unwrap();
 		let entry_point = shader.entry_point("main").unwrap();
 
@@ -170,7 +204,8 @@ impl PfacGpu {
 				[
 					WriteDescriptorSet::buffer(0, Subbuffer::new(Arc::clone(&upload_buffer_device))),
 					WriteDescriptorSet::buffer(1, Subbuffer::new(Arc::clone(&table_buffer_device))),
-					WriteDescriptorSet::buffer(2, Subbuffer::new(Arc::clone(&output_buffer_device)))
+					WriteDescriptorSet::buffer(2, Subbuffer::new(Arc::clone(&output_buffer_device))),
+					// WriteDescriptorSet::buffer(3, Subbuffer::new(Arc::clone(&state_buffer_device)))
 				],
 				[]
 			).map_err(Error::from)?
@@ -187,6 +222,8 @@ impl PfacGpu {
 				.copy_buffer(CopyBufferInfo::buffers(table_buffer_host, Subbuffer::new(Arc::clone(&table_buffer_device))))
 				.map_err(Error::from)?
 				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&output_buffer_host)), Subbuffer::new(Arc::clone(&output_buffer_device))))
+				.map_err(Error::from)?
+				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&state_buffer_host)), Subbuffer::new(Arc::clone(&state_buffer_device))))
 				.map_err(Error::from)?;
 
 			builder.build().map_err(Error::from)?
@@ -203,7 +240,7 @@ impl PfacGpu {
 		let cmd_buffer = {
 			let mut builder = AutoCommandBufferBuilder::primary(&cmd_buf_alloc, vkqf_idx, CommandBufferUsage::MultipleSubmit).map_err(Error::from)?;
 
-			let work_group_counts = [(UPLOAD_BUFFER_SIZE / 32) as u32, 1, 1];
+			let work_group_counts = [(UPLOAD_BUFFER_SIZE / 32) as u32, 1, 1]; // TODO: Use a 2D work group count and change the compute shader accordingly, to allow for a larger size of work groups
 
 			builder
 				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&upload_buffer_host)), Subbuffer::new(Arc::clone(&upload_buffer_device))))
@@ -265,10 +302,10 @@ impl PfacGpu {
 		//let value = &output_subbuffer_host.read().unwrap()[0..((data.len() + 4) * 2)];
 		let output_subbuffer_host_rlock = output_subbuffer_host.read().unwrap();
 		let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap());
-		println!("Results len: {}", results_len);
+		// println!("Results len: {}", results_len);
 		let results: Vec<Match> = output_subbuffer_host_rlock[4..((results_len as usize * 4 * 4) + 4)]
 			.chunks_exact(4)
-			.map(|chunk| { println!("Map: Constructing a u32 from 4 bytes"); u32::from_ne_bytes(chunk.try_into().unwrap()) })
+			.map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
 			.to_chunks_exact(4)
 			.map(|chunk| Match::new(
 				((chunk[1] as u64) << 32) | chunk[0] as u64,
@@ -280,8 +317,12 @@ impl PfacGpu {
 		return Ok(results)
 	}
 
+	pub fn discard_progress(&mut self) -> Result<(), Error> {
+		todo!() // TODO: Progress tracking for GPGPU impl of PFAC
+	}
+
 	// Attempts to find the best Vulkan implementation and QueueFamily (returned as an index)
-	pub fn select_compute_device(instance: Arc<Instance>, device_extensions: &DeviceExtensions, queue_flags: QueueFlags) -> Option<(Arc<PhysicalDevice>, u32)> {
+	fn select_compute_device(instance: Arc<Instance>, device_extensions: &DeviceExtensions, queue_flags: QueueFlags) -> Option<(Arc<PhysicalDevice>, u32)> {
 		instance.enumerate_physical_devices().expect("Cannot enumerate physical devices")
 			.filter(|p| p.supported_extensions().contains(&device_extensions))
 			.filter_map(|p| {
@@ -341,9 +382,9 @@ mod test {
 
 	#[test]
 	fn test_pfac_gpu_multi() {
-		let buffer = [ 1, 2, 3, 4, 5, 8, 4, 1, 2, 3, 4, 5, 1, 1, 2, 1, 2, 3, 4, 5, 0, 5, 9, 1, 2 ];
+		let buffer = [ 1, 2, 3, 4, 5, 8, 4, 1, 2, 3, 4, 5, 1, 1, 2, 1, 2, 3, 4, 5, 0, 5, 9, 1, 2, 0x7f, 0x45, 0x4c, 0x46, 0 ];
 
-		let pattern = &[1, 2, 3, 4, 5];
+		let pattern = &[ 1, 2, 3, 4, 5 ];
 		let pattern_id = match_id_hash_slice(pattern);
 
 		let pfac_table = PfacTableBuilder::new(true).with_pattern(pattern).build();
@@ -369,6 +410,48 @@ mod test {
 				end_idx: 19
 			}
 		];
+
+		assert_eq!(matches, expected);
+	}
+
+	#[test]
+	fn test_pfac_gpu_multi_2() {
+		let buffer = [ 1, 2, 3, 4, 5, 8, 4, 1, 2, 3, 4, 5, 1, 1, 2, 1, 2, 3, 4, 5, 0, 5, 9, 1, 2, 0x7f, 0x45, 0x4c, 0x46, 0 ];
+
+		let patterns: &[&[u8]] = &[ &[ 1, 2, 3, 4, 5 ], &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
+		let pattern_id_0 = match_id_hash_slice(patterns[0]);
+		let pattern_id_1 = match_id_hash_slice(patterns[1]);
+
+		let pfac_table = PfacTableBuilder::new(true).with_pattern(patterns[0]).with_pattern(patterns[1]).build();
+		let mut pfac = PfacGpu::new(pfac_table).unwrap();
+		let mut matches = pfac.search_next(&buffer[..8], 0).unwrap();
+		matches.append(&mut pfac.search_next(&buffer[8..10], 8).unwrap());
+		matches.append(&mut pfac.search_next(&buffer[10..], 10).unwrap());
+
+		let expected = vec![
+			Match {
+				id: pattern_id_0,
+				start_idx: 0,
+				end_idx: 4
+			},
+			Match {
+				id: pattern_id_0,
+				start_idx: 7,
+				end_idx: 11
+			},
+			Match {
+				id: pattern_id_0,
+				start_idx: 15,
+				end_idx: 19
+			},
+			Match {
+				id: pattern_id_1,
+				start_idx: 25,
+				end_idx: 28
+			}
+		];
+
+		matches.sort_unstable_by_key(|m| m.start_idx);
 
 		assert_eq!(matches, expected);
 	}

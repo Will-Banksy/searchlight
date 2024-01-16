@@ -1,8 +1,19 @@
+use self::{pfac_cpu::PfacCpu, pfac_common::PfacTable};
+
+use crate::lib::utils::logging::sl_warn;
+
+use super::error::Error;
+
+#[cfg(feature = "gpu")]
+use pfac_gpu::PfacGpu;
+
 pub mod pfac_common;
 pub mod pfac_cpu;
 #[cfg(feature = "gpu")]
 pub mod pfac_gpu;
 
+/// A result from searching, includes a start and end, and an id generated from the FNV-1a hash of the bytes of the match.
+/// Using the FNV-1a hashing algorithm as it is very simple, with good characteristics, and is fast
 #[derive(Debug, PartialEq)]
 pub struct Match {
 	/// `id` should be produced by using the `match_id_hash_init` and `match_id_hash_add` functions on the values in a pattern
@@ -24,27 +35,99 @@ impl Match {
 	}
 }
 
+enum PfacImpl {
+	Cpu(PfacCpu),
+	#[cfg(feature = "gpu")]
+	Gpu(PfacGpu)
+}
+
+pub struct Pfac {
+	pfac_impl: PfacImpl
+}
+
+impl Pfac {
+	/// Initialises one of the two available implementations of the PFAC dictionary searching algorithm:
+	/// either the GPU-accelerated PFAC algorithm with Vulkan through vulkano or PFAC on the CPU,
+	/// using a thread pool.
+	///
+	/// The GPU-accelerated implementation will be chosen by default if available
+	pub fn new(table: PfacTable, prefer_cpu: bool) -> Self {
+		if !prefer_cpu {
+			#[cfg(feature = "gpu")]
+			{
+				match PfacGpu::new(table.clone()) {
+					Ok(pfac_gpu) => {
+						return Pfac {
+							pfac_impl: PfacImpl::Gpu(pfac_gpu)
+						};
+					}
+					Err(e) => {
+						sl_warn!("Pfac", format!("Vulkan initialisation failed, falling back to CPU impl of PFAC {:?}", e));
+					}
+				}
+			}
+		}
+
+		return Pfac {
+			pfac_impl: PfacImpl::Cpu(PfacCpu::new(table))
+		};
+	}
+
+	/// Searches the provided buffer through the used PFAC implementation
+	///
+	/// This should normally be called on ordered contiguous buffers, one after the other, as it tracks matching progress
+	/// - to discard progress and correctly match on a non-contiguous or out of order buffer, call `discard_progress` between
+	/// calling this method
+	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<Vec<Match>, Error> {
+		match &mut self.pfac_impl {
+			PfacImpl::Cpu(pfac_cpu) => {
+				Ok(pfac_cpu.search_next(data, data_offset))
+			}
+			#[cfg(feature = "gpu")]
+			PfacImpl::Gpu(pfac_gpu) => {
+				match pfac_gpu.search_next(data, data_offset) {
+					Ok(results) => Ok(results),
+					Err(e) => {
+						Err(Error::from(e))
+					}
+				}
+			}
+		}
+	}
+
+	pub fn discard_progress(&mut self) -> Result<(), Error> {
+		match &mut self.pfac_impl {
+			PfacImpl::Cpu(pfac_cpu) => {
+				Ok(pfac_cpu.discard_progress())
+			}
+			#[cfg(feature = "gpu")]
+			PfacImpl::Gpu(pfac_gpu) => {
+				match pfac_gpu.discard_progress() {
+					Ok(_) => Ok(()),
+					Err(e) => {
+						Err(Error::from(e))
+					}
+				}
+			}
+		}
+	}
+}
+
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 
-/// Returns the initial value to start creating a hash from a sequence of values with. Use `match_id_hash_add` to add
+/// Returns the initial FNV-1a value (FNV_OFFSET_BASIS) to start creating a hash from a sequence of values with. Use `match_id_hash_add` to add
 /// values to the hash
-///
-/// Using FNV-1a hashing algorithm as it is very simple, with good characteristics, and is fast
 pub fn match_id_hash_init() -> u64 {
 	FNV_OFFSET_BASIS
 }
 
-/// Takes the current hash value, adds a new value into the hash, and returns the new hash
-///
-/// Using FNV-1a hashing algorithm as it is very simple, with good characteristics, and is fast
+/// Takes the current FNV-1a hash value, adds a new value into the hash, and returns the new hash
 pub fn match_id_hash_add(hash: u64, new_value: u8) -> u64 {
 	(hash ^ new_value as u64).wrapping_mul(FNV_PRIME)
 }
 
-/// Calculates the hash of the slice using `match_id_hash_init` and `match_id_hash_add`
-///
-/// Using FNV-1a hashing algorithm as it is very simple, with good characteristics, and is fast
+/// Calculates the FNV-1a hash of the slice using `match_id_hash_init` and `match_id_hash_add`
 pub fn match_id_hash_slice(slice: &[u8]) -> u64 {
 	let mut hash = match_id_hash_init();
 

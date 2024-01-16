@@ -10,13 +10,17 @@ layout(set = 0, binding = 0) readonly buffer InputBuffer {
 	uint8_t in_data[];
 };
 
-layout(set = 0, binding = 1) buffer PfacTableBuffer {
+layout(set = 0, binding = 1) readonly buffer PfacTableBuffer {
 	uint pfac_table[];
 };
 
 layout(set = 0, binding = 2) buffer OutputBuffer {
 	uint out_data[];
 };
+
+// layout(set = 0, binding = 3) readonly uniform StateBuffer {
+// 	uint state[1024];
+// };
 
 // ===
 
@@ -84,9 +88,10 @@ void write_match(uint64_t id, uint start_idx, uint end_idx) {
 }
 
 // Carry-less multiplication, simply discards the overflowing bits of the result
+// Hopefully this loop is unrolled
 uint64_t clmul(uint64_t x, uint64_t y) {
 	uint64_t accum = 0;
-	for(uint i = 0; i < 128; i++) {
+	for(uint i = 0; i < 64; i++) {
 		if((x & 1ul) == 1) {
 			// NOTE: In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
 			accum += y;
@@ -120,7 +125,7 @@ void main() {
 
 	while(true) {
 		if(idx >= in_data_len) {
-			// TODO: Save running states if we are at/past the end of the input data
+			// TODO: Save running states if we are at/past the end of the input data to the state buffer. Also make sure to actually load the states and finish the matches (maybe use work group 0 for this to keep it to one work group)
 			break;
 		}
 
@@ -130,6 +135,7 @@ void main() {
 			state = next_state;
 			idx += 1;
 			id = match_id_hash_add(id, data_idx);
+			// id += 1;
 			// debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
 		} else if(pfac_table_is_terminator(state)) {
 			// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u\n", start_idx, idx - 1);

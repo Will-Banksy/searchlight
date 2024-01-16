@@ -24,12 +24,13 @@ pub struct PfacTableBuilder {
 	suffix_idx_map: HashMap<u64, u32>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PfacTableElem {
 	pub next_state: u32,
 	pub value: u8
 }
 
+#[derive(Clone)]
 pub struct PfacTable {
 	pub table: Vec<Vec<PfacTableElem>>
 }
