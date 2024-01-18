@@ -18,104 +18,69 @@ layout(set = 0, binding = 2) buffer OutputBuffer {
 	uint out_data[];
 };
 
-// layout(set = 0, binding = 3) readonly uniform StateBuffer {
-// 	uint state[1024];
-// };
+layout(set = 0, binding = 3) buffer OutStateBuffer {
+	uint out_state[1024];
+};
+
+layout(set = 0, binding = 4) buffer InStateBuffer {
+	uint in_state[1024];
+};
+
+layout(push_constant) uniform Metadata {
+	uint64_t offset;
+} metadata;
 
 // ===
 
-const uint64_t FNV_OFFSET_BASIS = 0xcbf29ce484222325ul;
-const uint64_t FNV_PRIME = 0x100000001b3ul;
+#include "pfac_core.comp"
 
 // ===
 
-uint read_in(uint idx) {
-	return uint(in_data[idx + 4]);
-}
+void process_in_states() {
+	uint idx = 0;
+	uint in_data_len = in_data_len();
 
-uint in_data_len() {
-	return uint(in_data[0]) | (uint(in_data[1]) << 8) | (uint(in_data[2]) << 16) | (uint(in_data[3]) << 24);
-}
+	uint64_t id = 0;
+	uint state = 0;
+	uint start_idx = 0;
 
-bool pfac_table_lookup(uint state, uint value, out uint next_state) {
-	// The pfac table len is u64 but we're going to assume it's not larger than u32 cause otherwise we can't handle it anyway
-	uint pfac_table_rlen = pfac_table[0];
-	uint row_idx = (state * pfac_table_rlen * 2) + 2;
-	uint row_len = pfac_table[row_idx];
+	while(load_state(id, state, start_idx)) {
+		// debugPrintfEXT("[pfac.comp/INFO]: Loaded state %u\n", state);
+		while(true) {
+			if(idx >= in_data_len) {
+				if(state != 0) {
+					save_state(id, state, start_idx);
+				}
+				break;
+			}
 
-	// debugPrintfEXT("row_idx: %u, row_len: %u\n", row_idx, row_len);
-
-	for(uint i = 2; i <= row_len * 2; i += 2) {
-		uint idx = i + row_idx;
-		uint elem_value = pfac_table[idx];
-		uint elem_next_state = pfac_table[idx + 1];
-
-		if(elem_value == value) {
-			next_state = elem_next_state;
-			return true;
+			uint next_state = 0;
+			uint data_idx = read_in(idx);
+			if(pfac_table_lookup(state, data_idx, next_state)) {
+				state = next_state;
+				idx += 1;
+				id = match_id_hash_add(id, data_idx);
+				// id += 1;
+				// debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
+			} else if(pfac_table_is_terminator(state)) {
+				// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u (offset %u)\n", start_idx, idx - 1, metadata.offset);
+				write_match(id, uint(start_idx), uint(idx - 1 + metadata.offset));
+				break;
+			} else {
+				break;
+			}
 		}
-
-		// debugPrintfEXT("pfac_table[%u]: { next_state: %u, value: %u } (len of this row: %u)\n", idx, next_state, value, row_len);
 	}
-
-	// debugPrintfEXT("pfac_table_rlen: %u\n", pfac_table_rlen);
-
-	next_state = 0;
-	return false;
-}
-
-bool pfac_table_is_terminator(uint state) {
-	// The pfac table len is u64 but we're going to assume it's not larger than u32 cause otherwise we can't handle it anyway
-	uint pfac_table_rlen = pfac_table[0];
-	uint row_idx = (state * pfac_table_rlen * 2) + 2;
-	uint row_len = pfac_table[row_idx];
-
-	return row_len == 0;
-}
-
-// start_idx and end_idx are relative to the current in_data
-void write_match(uint64_t id, uint start_idx, uint end_idx) {
-	uint idx = atomicAdd(out_data[0], 1);
-	idx *= 4; // idx * data size in uints
-	idx += 1; // offset from length at start
-	uint out_data_len = 1024 * 1024;
-	idx -= uint(idx > out_data_len) * (idx - out_data_len); // Branchless programming!
-	// debugPrintfEXT("Writing match at idx: %u\n", idx);
-	out_data[idx] = uint(id & 0x00000000ffffffff);
-	out_data[idx + 1] = uint((id >> 32) & 0x00000000ffffffff);
-	out_data[idx + 2] = start_idx;
-	out_data[idx + 3] = end_idx;
-}
-
-// Carry-less multiplication, simply discards the overflowing bits of the result
-// Hopefully this loop is unrolled
-uint64_t clmul(uint64_t x, uint64_t y) {
-	uint64_t accum = 0;
-	for(uint i = 0; i < 64; i++) {
-		if((x & 1ul) == 1) {
-			// NOTE: In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
-			accum += y;
-		}
-		x >>= 1ul;
-		x ^= x & (1ul << 127);
-		y <<= 1ul;
-		y ^= y & 1ul;
-	}
-
-	return accum;
-}
-
-uint64_t match_id_hash_init() {
-	return FNV_OFFSET_BASIS;
-}
-
-uint64_t match_id_hash_add(uint64_t hash, uint new_value) {
-	return clmul((hash ^ uint64_t(new_value)), FNV_PRIME);
 }
 
 // ===
 
 void main() {
+	// It's very unlikely that there are more than say one or two match candidates that were cross-border - So only get workgroup 0 to deal with it
+	if(gl_WorkGroupID.x == 0) {
+		process_in_states();
+	}
+
 	uint idx = gl_GlobalInvocationID.x;
 	uint in_data_len = in_data_len();
 
@@ -125,7 +90,10 @@ void main() {
 
 	while(true) {
 		if(idx >= in_data_len) {
-			// TODO: Save running states if we are at/past the end of the input data to the state buffer. Also make sure to actually load the states and finish the matches (maybe use work group 0 for this to keep it to one work group)
+			if(state != 0) {
+				save_state(id, state, uint(start_idx + metadata.offset));
+				// debugPrintfEXT("[pfac.comp/INFO]: Saving state %u\n", state);
+			}
 			break;
 		}
 
@@ -138,8 +106,8 @@ void main() {
 			// id += 1;
 			// debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
 		} else if(pfac_table_is_terminator(state)) {
-			// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u\n", start_idx, idx - 1);
-			write_match(id, start_idx, idx - 1);
+			// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u (offset %u)\n", start_idx, idx - 1, metadata.offset);
+			write_match(id, uint(start_idx + metadata.offset), uint(idx - 1 + metadata.offset));
 			break;
 		} else {
 			break;

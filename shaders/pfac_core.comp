@@ -1,0 +1,147 @@
+const uint64_t FNV_OFFSET_BASIS = 0xcbf29ce484222325ul;
+const uint64_t FNV_PRIME = 0x100000001b3ul;
+
+const uint UINT32_MAX = 0xffffffff;
+
+// ===
+
+uint read_in(uint idx) {
+	return uint(in_data[idx + 4]);
+}
+
+uint in_data_len() {
+	return uint(in_data[0]) | (uint(in_data[1]) << 8) | (uint(in_data[2]) << 16) | (uint(in_data[3]) << 24);
+}
+
+bool pfac_table_lookup(uint state, uint value, out uint next_state) {
+	// The pfac table len is u64 but we're going to assume it's not larger than u32 cause otherwise we can't handle it anyway
+	uint pfac_table_rlen = pfac_table[0];
+	uint row_idx = (state * pfac_table_rlen * 2) + 2;
+	uint row_len = pfac_table[row_idx];
+
+	// debugPrintfEXT("row_idx: %u, row_len: %u\n", row_idx, row_len);
+
+	for(uint i = 2; i <= row_len * 2; i += 2) {
+		uint idx = i + row_idx;
+		uint elem_value = pfac_table[idx];
+		uint elem_next_state = pfac_table[idx + 1];
+
+		if(elem_value == value) {
+			next_state = elem_next_state;
+			return true;
+		}
+
+		// debugPrintfEXT("pfac_table[%u]: { next_state: %u, value: %u } (len of this row: %u)\n", idx, next_state, value, row_len);
+	}
+
+	// debugPrintfEXT("pfac_table_rlen: %u\n", pfac_table_rlen);
+
+	next_state = 0;
+	return false;
+}
+
+bool pfac_table_is_terminator(uint state) {
+	// The pfac table len is u64 but we're going to assume it's not larger than u32 cause otherwise we can't handle it anyway
+	uint pfac_table_rlen = pfac_table[0];
+	uint row_idx = (state * pfac_table_rlen * 2) + 2;
+	uint row_len = pfac_table[row_idx];
+
+	return row_len == 0;
+}
+
+uint upper_of(uint64_t value) {
+	return uint((value >> 32) & 0x00000000ffffffff);
+}
+
+uint lower_of(uint64_t value) {
+	return uint(value & 0x00000000ffffffff);
+}
+
+// start_idx and end_idx are relative to the current in_data
+void write_match(uint64_t id, uint start_idx, uint end_idx) { // TODO: Change start_idx and end_idx to uint64_t
+	uint idx = atomicAdd(out_data[0], 1);
+	idx *= 4; // idx * data size in uints
+	idx += 1; // offset from length at start
+	uint out_data_len = 1024 * 1024;
+	// If we're overflowing - there's not much we can do about it, so we just continually overwrite the last match
+	// FIXME: This below will set idx = out_data_len - 1: So it'll still overflow
+	idx -= uint(idx > out_data_len) * (idx - out_data_len); // Branchless programming!
+	// debugPrintfEXT("Writing match at idx: %u\n", idx);
+	out_data[idx] = lower_of(id);
+	out_data[idx + 1] = upper_of(id);
+	out_data[idx + 2] = start_idx;
+	out_data[idx + 3] = end_idx;
+	// out_data[idx + 2] = lower_of(start_idx);
+	// out_data[idx + 3] = upper_of(start_idx);
+	// out_data[idx + 4] = lower_of(end_idx);
+	// out_data[idx + 5] = upper_of(end_idx);
+}
+
+void save_state(uint64_t id, uint state, uint start_idx) { // TODO: Change start_idx to uint64_t
+	// Most of this code is basically the same as in write_match except we have two incrementors,
+	// one that we leave blank here
+
+	// debugPrintfEXT("[pfac.comp/INFO]: save_state: state: %u, idx: %u\n", state, idx);
+
+	uint idx = atomicAdd(out_state[0], 1);
+	idx *= 4;
+	idx += 2;
+
+	uint max_state_len = 1024;
+	// FIXME: Same issue as in write_match
+	idx -= uint(idx > max_state_len) * (idx - max_state_len);
+
+	out_state[idx] = uint(id & 0x00000000ffffffff);
+	out_state[idx + 1] = uint((id >> 32) & 0x00000000ffffffff);
+	out_state[idx + 2] = state;
+	out_state[idx + 3] = start_idx;
+}
+
+bool load_state(out uint64_t id, out uint state, out uint start_idx) { // TODO: Change start_idx to uint64_t
+	uint idx = atomicAdd(in_state[1], 1);
+	uint state_len = in_state[0];
+
+	// debugPrintfEXT("[pfac.comp/INFO]: load_state: idx %u and state_len %u\n", idx, state_len);
+
+	if(idx >= state_len) {
+		return false;
+	}
+
+	idx *= 4;
+	idx += 2;
+
+	uint id_low = in_state[idx];
+	uint id_high = in_state[idx + 1];
+	state = in_state[idx + 2];
+	start_idx = in_state[idx + 3];
+
+	id = ((uint64_t(id_high) << 32) & 0xffffffff00000000ul) | uint64_t(id_low);
+
+	return true;
+}
+
+// Carry-less multiplication, simply discards the overflowing bits of the result
+// Hopefully this loop is unrolled
+uint64_t clmul(uint64_t x, uint64_t y) {
+	uint64_t accum = 0;
+	for(uint i = 0; i < 64; i++) {
+		if((x & 1ul) == 1) {
+			// NOTE: In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
+			accum += y;
+		}
+		x >>= 1ul;
+		x ^= x & (1ul << 127);
+		y <<= 1ul;
+		y ^= y & 1ul;
+	}
+
+	return accum;
+}
+
+uint64_t match_id_hash_init() {
+	return FNV_OFFSET_BASIS;
+}
+
+uint64_t match_id_hash_add(uint64_t hash, uint new_value) {
+	return clmul((hash ^ uint64_t(new_value)), FNV_PRIME);
+}
