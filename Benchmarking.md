@@ -1,4 +1,8 @@
-# DISK I/O
+# Benchmarking
+
+This file keeps records of benchmarks that have been done, across different benchmark targets/types, hardware and test cases.
+
+# Disk Read
 
 SSD: WD Blue SN570 1TB
 - Reported sequential read: 3500 MB/s (~3.260 GiB)
@@ -81,3 +85,30 @@ io/io_uring
 io/direct
 - time:   [3.5381 s 3.5619 s 3.5868 s]
 - thrpt:  [1.4196 GiB/s 1.4295 GiB/s 1.4391 GiB/s]
+
+# Searching
+
+## Test Environment
+
+- Low activity linux environment
+- Hardware:
+	- CPU: AMD Ryzen 7 7700X
+	- GPU: AMD Radeon RTX 6950 XT (PCIe 5)
+
+## Test Case
+
+The file used for benchmarking the searching algorithm implementations can be downloaded from Digital Corpora, at this link: [https://digitalcorpora.s3.amazonaws.com/corpora/drives/nps-2009-ubnist1/ubnist1.gen3.raw](https://digitalcorpora.s3.amazonaws.com/corpora/drives/nps-2009-ubnist1/ubnist1.gen3.raw)
+
+Only one pattern was used: `[ 0x7f, 0x45, 0x4c, 0x46 ]` (this will be changed)
+
+## Searchlight Benchmark
+
+The CPU implementation of the searching algorithm is very slow and only serves as a fallback for when the GPU-accelerated version is not available, and is therefore not benchmarked.
+
+Each benchmark is run 20 times - 20 samples. The results in the [] are the confidence interval upper and lower bounds, and in the middle, the best guess as to the time taken for each sample, as reported by criterion.
+
+See benches/search_bench.rs for the benchmark file.
+
+search/pfac_gpu
+- time:   [1.0068 s 1.0091 s 1.0115 s]
+- thrpt:  [1.9396 GiB/s 1.9442 GiB/s 1.9488 GiB/s]

@@ -5,8 +5,8 @@ const uint UINT32_MAX = 0xffffffff;
 
 // ===
 
-uint read_in(uint idx) {
-	return uint(in_data[idx + 4]);
+uint read_in(uint64_t idx) {
+	return uint(in_data[uint(idx + 4)]);
 }
 
 uint in_data_len() {
@@ -57,65 +57,68 @@ uint lower_of(uint64_t value) {
 	return uint(value & 0x00000000ffffffff);
 }
 
+uint64_t reconstruct_u64(uint lower, uint higher) {
+	return (uint64_t(higher) << 32) | uint64_t(lower);
+}
+
 // start_idx and end_idx are relative to the current in_data
-void write_match(uint64_t id, uint start_idx, uint end_idx) { // TODO: Change start_idx and end_idx to uint64_t
+void write_match(uint64_t id, uint64_t start_idx, uint64_t end_idx) {
 	uint idx = atomicAdd(out_data[0], 1);
-	idx *= 4; // idx * data size in uints
+	idx *= 6; // idx * data size in uints
 	idx += 1; // offset from length at start
+
 	uint out_data_len = 1024 * 1024;
-	// If we're overflowing - there's not much we can do about it, so we just continually overwrite the last match
-	// FIXME: This below will set idx = out_data_len - 1: So it'll still overflow
-	idx -= uint(idx > out_data_len) * (idx - out_data_len); // Branchless programming!
+	// If we're overflowing, just don't write a match. Maybe return false, but there's much not point cause the shader can't really do anything about it
+	if((idx + 5) >= out_data_len) {
+		return;
+	}
+
 	// debugPrintfEXT("Writing match at idx: %u\n", idx);
 	out_data[idx] = lower_of(id);
 	out_data[idx + 1] = upper_of(id);
-	out_data[idx + 2] = start_idx;
-	out_data[idx + 3] = end_idx;
-	// out_data[idx + 2] = lower_of(start_idx);
-	// out_data[idx + 3] = upper_of(start_idx);
-	// out_data[idx + 4] = lower_of(end_idx);
-	// out_data[idx + 5] = upper_of(end_idx);
+	out_data[idx + 2] = lower_of(start_idx);
+	out_data[idx + 3] = upper_of(start_idx);
+	out_data[idx + 4] = lower_of(end_idx);
+	out_data[idx + 5] = upper_of(end_idx);
 }
 
-void save_state(uint64_t id, uint state, uint start_idx) { // TODO: Change start_idx to uint64_t
+void save_state(uint64_t id, uint state, uint64_t start_idx) {
 	// Most of this code is basically the same as in write_match except we have two incrementors,
 	// one that we leave blank here
 
 	// debugPrintfEXT("[pfac.comp/INFO]: save_state: state: %u, idx: %u\n", state, idx);
 
 	uint idx = atomicAdd(out_state[0], 1);
-	idx *= 4;
-	idx += 2;
+	idx = idx * 5 + 2;
 
 	uint max_state_len = 1024;
-	// FIXME: Same issue as in write_match
-	idx -= uint(idx > max_state_len) * (idx - max_state_len);
+	if((idx + 4) >= max_state_len) {
+		return;
+	}
 
-	out_state[idx] = uint(id & 0x00000000ffffffff);
-	out_state[idx + 1] = uint((id >> 32) & 0x00000000ffffffff);
+	out_state[idx] = lower_of(id);
+	out_state[idx + 1] = upper_of(id);
 	out_state[idx + 2] = state;
-	out_state[idx + 3] = start_idx;
+	out_state[idx + 3] = lower_of(start_idx);
+	out_state[idx + 4] = upper_of(start_idx);
 }
 
-bool load_state(out uint64_t id, out uint state, out uint start_idx) { // TODO: Change start_idx to uint64_t
+bool load_state(out uint64_t id, out uint state, out uint64_t start_idx) {
 	uint idx = atomicAdd(in_state[1], 1);
 	uint state_len = in_state[0];
 
 	// debugPrintfEXT("[pfac.comp/INFO]: load_state: idx %u and state_len %u\n", idx, state_len);
 
-	if(idx >= state_len) {
+	uint max_state_len = 1024;
+	if(idx >= state_len || (idx * 5 + 6) >= max_state_len) {
 		return false;
 	}
 
-	idx *= 4;
-	idx += 2;
+	idx = idx * 5 + 2;
 
-	uint id_low = in_state[idx];
-	uint id_high = in_state[idx + 1];
+	id = reconstruct_u64(in_state[idx], in_state[idx + 1]);
 	state = in_state[idx + 2];
-	start_idx = in_state[idx + 3];
-
-	id = ((uint64_t(id_high) << 32) & 0xffffffff00000000ul) | uint64_t(id_low);
+	start_idx = reconstruct_u64(in_state[idx + 3], in_state[idx + 4]);
 
 	return true;
 }
@@ -126,7 +129,7 @@ uint64_t clmul(uint64_t x, uint64_t y) {
 	uint64_t accum = 0;
 	for(uint i = 0; i < 64; i++) {
 		if((x & 1ul) == 1) {
-			// NOTE: In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
+			// In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
 			accum += y;
 		}
 		x >>= 1ul;

@@ -23,11 +23,12 @@ rio = "0.9.4"
 
 [dev-dependencies]
 criterion = "0.5.1"
-
-# [profile.dev]
-# opt-level = 1
+tinyrand = "0.5.0"
 
 [[bench]]
-# TODO: Unify benchmarking harness
+name = "io_bench"
+harness = false
+
+[[bench]]
 name = "search_bench"
 harness = false

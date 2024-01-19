@@ -48,15 +48,15 @@ mod vulkan_error {
 #[cfg(feature = "gpu")]
 pub use self::vulkan_error::VulkanError;
 
-macro_rules! impl_from_for_variant {
-	($variant: path, $contained_type: ty) => {
-		impl From<$contained_type> for Error {
-			fn from(value: $contained_type) -> Self {
-				$variant(value)
-			}
-		}
-	};
-}
+// macro_rules! impl_from_for_variant {
+// 	($variant: path, $contained_type: ty) => {
+// 		impl From<$contained_type> for Error {
+// 			fn from(value: $contained_type) -> Self {
+// 				$variant(value)
+// 			}
+// 		}
+// 	};
+// }
 
 #[derive(Debug)]
 pub enum Error {

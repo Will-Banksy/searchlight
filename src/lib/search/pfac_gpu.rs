@@ -13,9 +13,9 @@ use std::{sync::Arc, ops::DerefMut, io::Write, time::Duration};
 
 use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo, Features, Queue}, memory::{allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocator, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo}, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet}, sync::{self, GpuFuture}};
 
-use crate::lib::{error::{Error, VulkanError}, utils::chunk_iter::ToChunksExact};
+use crate::{lib::{error::{Error, VulkanError}, utils::chunk_iter::ToChunksExact}, sl_info};
 
-use super::{pfac_common::PfacTable, Match};
+use super::{pfac_common::PfacTable, Match, PfacFuture};
 
 const UPLOAD_BUFFER_SIZE: u64 = (1024 * 1024) + 4;
 const OUTPUT_BUFFER_SIZE: u64 = 1024 * 1024;
@@ -50,7 +50,7 @@ impl PfacGpu {
 			..DeviceExtensions::default()
 		}, QueueFlags::COMPUTE).ok_or(VulkanError::NoVulkanImplementations)?;
 
-		println!("Using physical vulkan device: {} (type {:?})", vkphys.properties().device_name, vkphys.properties().device_type);
+		sl_info!("pfac_gpu", format!("Using physical vulkan device: {} (type {:?})", vkphys.properties().device_name, vkphys.properties().device_type));
 
 		// Initialise a logical vulkan device and queue objects
 		let (vkdev, mut vkqueues) = Device::new(vkphys, DeviceCreateInfo {
@@ -97,8 +97,6 @@ impl PfacGpu {
 
 		let table_data: Vec<u32> = table.encode().into_iter().flat_map(|elem| [ (elem & 0xff) as u32, ((elem >> 32) & 0xff) as u32 ]).collect();
 		let table_data_len = table_data.len() as u64;
-
-		println!("[pfac_]table_data: {:?}", table_data);
 
 		let table_buffer_host = Buffer::from_iter(
 			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
@@ -213,7 +211,7 @@ impl PfacGpu {
 				PipelineDescriptorSetLayoutCreateInfo::from_stages([&pfac_pipeline_stage])
 					.into_pipeline_layout_create_info(Arc::clone(&vkdev))
 					.expect("Failed to create pipeline layout create info")
-			).expect("Failed to create pipeline layout");
+			).map_err(Error::from)?;
 
 			ComputePipeline::new(Arc::clone(&vkdev), None, ComputePipelineCreateInfo::stage_layout(pfac_pipeline_stage, pfac_pipeline_layout)).map_err(Error::from)?
 		};
@@ -279,7 +277,7 @@ impl PfacGpu {
 		})
 	}
 
-	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<Vec<Match>, Error> {
+	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<PfacFuture, Error> {
 		let upload_subbuffer_host = Subbuffer::new(Arc::clone(&self.upload_buffer_host));
 		{
 			let mut upload_subbuffer_host_wlock = upload_subbuffer_host.write().unwrap();
@@ -303,7 +301,7 @@ impl PfacGpu {
 		let cmd_buffer = {
 			let mut builder = AutoCommandBufferBuilder::primary(&self.vkcmd_buf_alloc, self.vkqueue.queue_family_index(), CommandBufferUsage::OneTimeSubmit).map_err(Error::from)?;
 
-			let pfac_work_group_counts = [(UPLOAD_BUFFER_SIZE / 32) as u32, 1, 1]; // TODO: Use a 2D work group count and change the compute shader accordingly, to allow for a larger size of work groups
+			let pfac_work_group_counts = [(UPLOAD_BUFFER_SIZE / 64) as u32, 1, 1]; // TODO: Use a 2D work group count and change the compute shader accordingly, to allow for a larger size of work groups
 
 			builder
 				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.upload_buffer_host)), Subbuffer::new(Arc::clone(&self.upload_buffer_device))))
@@ -337,31 +335,37 @@ impl PfacGpu {
 			builder.build().map_err(Error::from)?
 		};
 
-		sync::now(Arc::clone(&self.vkdev))
+		let fence_fut = sync::now(Arc::clone(&self.vkdev))
 			.then_execute(Arc::clone(&self.vkqueue), Arc::clone(&cmd_buffer))
 			.map_err(Error::from)?
 			.then_signal_fence_and_flush()
-			.map_err(Error::from)?
-			.wait(Some(Duration::from_secs(10)))
 			.map_err(Error::from)?;
 
-		let output_subbuffer_host = Subbuffer::new(Arc::clone(&self.output_buffer_host));
-		//let value = &output_subbuffer_host.read().unwrap()[0..((data.len() + 4) * 2)];
-		let output_subbuffer_host_rlock = output_subbuffer_host.read().unwrap();
-		let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap());
-		// println!("Results len: {}", results_len);
-		let results: Vec<Match> = output_subbuffer_host_rlock[4..((results_len as usize * 4 * 4) + 4)]
-			.chunks_exact(4)
-			.map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
-			.to_chunks_exact(4)
-			.map(|chunk| Match::new(
-				((chunk[1] as u64) << 32) | chunk[0] as u64,
-				chunk[2] as u64,
-				chunk[3] as u64
-			))
-			.collect();
+		let output_buffer_host = Arc::clone(&self.output_buffer_host);
 
-		return Ok(results)
+		Ok(PfacFuture::new(move || {
+			fence_fut
+				.wait(Some(Duration::from_secs(30)))
+				.map_err(Error::from)?;
+
+			let output_subbuffer_host = Subbuffer::new(output_buffer_host);
+			//let value = &output_subbuffer_host.read().unwrap()[0..((data.len() + 4) * 2)];
+			let output_subbuffer_host_rlock = output_subbuffer_host.read().unwrap();
+			let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap());
+			// println!("Results len: {}", results_len);
+			let results: Vec<Match> = output_subbuffer_host_rlock[4..((results_len as usize * 4 * 6) + 4)]
+				.chunks_exact(4)
+				.map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
+				.to_chunks_exact(6)
+				.map(|chunk| Match::new(
+					((chunk[1] as u64) << 32) | chunk[0] as u64,
+					((chunk[3] as u64) << 32) | chunk[2] as u64,
+					((chunk[5] as u64) << 32) | chunk[4] as u64
+				))
+				.collect();
+
+			Ok(results)
+		}))
 	}
 
 	pub fn discard_progress(&mut self) -> Result<(), Error> {
@@ -424,7 +428,7 @@ mod test {
 			}
 		];
 
-		assert_eq!(matches, expected);
+		assert_eq!(matches.wait().unwrap(), expected);
 	}
 
 	#[test]
@@ -436,9 +440,9 @@ mod test {
 
 		let pfac_table = PfacTableBuilder::new(true).with_pattern(pattern).build();
 		let mut pfac = PfacGpu::new(pfac_table).unwrap();
-		let mut matches = pfac.search_next(&buffer[..8], 0).unwrap();
-		matches.append(&mut pfac.search_next(&buffer[8..10], 8).unwrap());
-		matches.append(&mut pfac.search_next(&buffer[10..], 10).unwrap());
+		let mut matches = pfac.search_next(&buffer[..8], 0).unwrap().wait().unwrap();
+		matches.append(&mut pfac.search_next(&buffer[8..10], 8).unwrap().wait().unwrap());
+		matches.append(&mut pfac.search_next(&buffer[10..], 10).unwrap().wait().unwrap());
 
 		let expected = vec![
 			Match {

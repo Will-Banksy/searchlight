@@ -4,7 +4,7 @@
 #extension GL_EXT_shader_8bit_storage : enable
 #extension GL_ARB_gpu_shader_int64 : enable
 
-layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly buffer InputBuffer {
 	uint8_t in_data[];
@@ -37,12 +37,12 @@ layout(push_constant) uniform Metadata {
 // ===
 
 void process_in_states() {
-	uint idx = 0;
+	uint64_t idx = 0;
 	uint in_data_len = in_data_len();
 
 	uint64_t id = 0;
 	uint state = 0;
-	uint start_idx = 0;
+	uint64_t start_idx = 0;
 
 	while(load_state(id, state, start_idx)) {
 		// debugPrintfEXT("[pfac.comp/INFO]: Loaded state %u\n", state);
@@ -81,11 +81,11 @@ void main() {
 		process_in_states();
 	}
 
-	uint idx = gl_GlobalInvocationID.x;
+	uint64_t idx = uint64_t(gl_GlobalInvocationID.x);
 	uint in_data_len = in_data_len();
 
 	uint state = 0;
-	uint start_idx = idx;
+	uint64_t start_idx = idx;
 	uint64_t id = match_id_hash_init();
 
 	while(true) {

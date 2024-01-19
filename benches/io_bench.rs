@@ -1,4 +1,4 @@
-use std::{hint::black_box, time::Duration};
+use std::{hint::black_box, fs::File};
 
 use criterion::{Criterion, criterion_main, criterion_group, Bencher, Throughput, BenchmarkId};
 use searchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE, DEFAULT_ALIGNMENT, GenIoBackend, AccessPattern};
@@ -15,8 +15,9 @@ const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 fn io_uring_bench(c: &mut Criterion) {
 	let mut group = c.benchmark_group("io_uring_readlen");
 	group.sample_size(20);
-	group.throughput(Throughput::Bytes(5_467_144_192));
-	group.measurement_time(Duration::from_secs(42));
+
+	let bench_file_len = File::open(BENCH_FILE).unwrap().metadata().unwrap().len();
+	group.throughput(Throughput::Bytes(bench_file_len));
 
 	const RS: u64 = DEFAULT_ALIGNMENT as u64;
 
@@ -28,8 +29,10 @@ fn io_uring_bench(c: &mut Criterion) {
 
 fn io_bench(c: &mut Criterion) {
 	let mut group = c.benchmark_group("io");
-	group.sample_size(10);
-	group.throughput(Throughput::Bytes(5_467_144_192));
+	group.sample_size(20);
+
+	let bench_file_len = File::open(BENCH_FILE).unwrap().metadata().unwrap().len();
+	group.throughput(Throughput::Bytes(bench_file_len));
 
 	let block_size = DEFAULT_BLOCK_SIZE;
 
@@ -42,8 +45,6 @@ fn io_bench(c: &mut Criterion) {
 }
 
 fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
-	// let start = Instant::now();
-
 	b.iter_batched(|| {
 		let mut ioman = IoManager::new();
 
@@ -57,12 +58,6 @@ fn bench_filebuf(b: &mut Bencher, block_size: &u64) {
 
 		(ioman, path)
 	}, bench_ioman, criterion::BatchSize::LargeInput)
-
-	// let secs_elapsed = start.elapsed().as_secs_f32();
-	// let throughput_bytes = (ioman.file_len().unwrap() as f32) / secs_elapsed;
-	// let throughput_mb = throughput_bytes / 1_000_000.0;
-
-	// println!("\nTook: {} secs\nThroughput: {} bytes/s ({} MB/s)", secs_elapsed, throughput_bytes, throughput_mb);
 }
 
 fn bench_mmap(b: &mut Bencher, block_size: &u64) {

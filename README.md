@@ -7,4 +7,4 @@ TODO: Write README
 
 ## Benchmarks
 
-See [Benchmarking.md](Benchmarking.md) for benchmarks & notes.
+See [Benchmarking.md](Benchmarking.md) for benchmarks & performance notes.

@@ -2,7 +2,7 @@ use std::{thread, num::NonZeroUsize, sync::{RwLock, Arc}};
 
 use scoped_thread_pool::Pool;
 
-use super::{pfac_common::PfacTable, Match, match_id_hash_init, match_id_hash_add};
+use super::{pfac_common::PfacTable, Match, match_id_hash_init, match_id_hash_add, PfacFuture};
 
 struct PfacState {
 	state: u32,
@@ -32,7 +32,7 @@ impl PfacCpu {
 	/// This should normally be called on ordered contiguous buffers, one after the other, as it tracks matching progress
 	/// - to discard progress and correctly match on a non-contiguous or out of order buffer, call `discard_progress` between
 	/// calling this method
-	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Vec<Match> {
+	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> PfacFuture {
 		let matches: Arc<RwLock<Vec<Match>>> = Arc::new(RwLock::new(Vec::new()));
 		let pfac_cpu = &*self;
 		pfac_cpu.thread_pool.scoped(|scope| {
@@ -106,7 +106,9 @@ impl PfacCpu {
 		});
 
 		// This looks scary because lots of unwrapping but it should never panic
-		Arc::into_inner(matches).unwrap().into_inner().unwrap()
+		let result = Arc::into_inner(matches).unwrap().into_inner().unwrap();
+
+		PfacFuture::new(move || Ok(result))
 	}
 
 	/// Discards the tracked progress, allowing for correct searching of non-contiguous or out of order buffers
@@ -148,7 +150,7 @@ mod test {
 			}
 		];
 
-		assert_eq!(matches, expected);
+		assert_eq!(matches.wait().unwrap(), expected);
 	}
 
 	#[test]
@@ -160,9 +162,9 @@ mod test {
 
 		let pfac_table = PfacTableBuilder::new(true).with_pattern(pattern).build();
 		let mut pfac = PfacCpu::new(pfac_table);
-		let mut matches = pfac.search_next(&buffer[..8], 0);
-		matches.append(&mut pfac.search_next(&buffer[8..10], 8));
-		matches.append(&mut pfac.search_next(&buffer[10..], 10));
+		let mut matches = pfac.search_next(&buffer[..8], 0).wait().unwrap();
+		matches.append(&mut pfac.search_next(&buffer[8..10], 8).wait().unwrap());
+		matches.append(&mut pfac.search_next(&buffer[10..], 10).wait().unwrap());
 
 		let expected = vec![
 			Match {

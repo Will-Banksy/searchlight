@@ -35,6 +35,22 @@ impl Match {
 	}
 }
 
+pub struct PfacFuture {
+	wait_fn: Box<dyn FnOnce() -> Result<Vec<Match>, Error>>
+}
+
+impl PfacFuture {
+	pub fn new(wait_fn: impl FnOnce() -> Result<Vec<Match>, Error> + 'static) -> Self {
+		PfacFuture {
+			wait_fn: Box::new(wait_fn)
+		}
+	}
+
+	pub fn wait(self) -> Result<Vec<Match>, Error> {
+		(self.wait_fn)()
+	}
+}
+
 enum PfacImpl {
 	Cpu(PfacCpu),
 	#[cfg(feature = "gpu")]
@@ -78,7 +94,7 @@ impl Pfac {
 	/// This should normally be called on ordered contiguous buffers, one after the other, as it tracks matching progress
 	/// - to discard progress and correctly match on a non-contiguous or out of order buffer, call `discard_progress` between
 	/// calling this method
-	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<Vec<Match>, Error> {
+	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<PfacFuture, Error> {
 		match &mut self.pfac_impl {
 			PfacImpl::Cpu(pfac_cpu) => {
 				Ok(pfac_cpu.search_next(data, data_offset))
