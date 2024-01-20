@@ -1,5 +1,6 @@
 use self::{pfac_cpu::PfacCpu, pfac_common::PfacTable};
 
+#[cfg(feature = "gpu")]
 use crate::lib::utils::logging::sl_warn;
 
 use super::error::Error;

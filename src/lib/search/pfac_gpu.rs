@@ -11,7 +11,7 @@ mod pfac_shaders {
 
 use std::{sync::Arc, ops::DerefMut, io::Write, time::Duration};
 
-use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo, Features, Queue}, memory::{allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocator, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo}, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet}, sync::{self, GpuFuture}};
+use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo, Features, Queue}, memory::{allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocator, DeviceLayout, MemoryAllocatePreference}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo}, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet}, sync::{self, GpuFuture}};
 
 use crate::{lib::{error::{Error, VulkanError}, utils::chunk_iter::ToChunksExact}, sl_info};
 
@@ -78,6 +78,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(UPLOAD_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
@@ -90,6 +91,7 @@ impl PfacGpu {
 				..Default::default()
 			}, AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(UPLOAD_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
@@ -106,6 +108,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			table_data
@@ -118,6 +121,7 @@ impl PfacGpu {
 				..Default::default()
 			}, AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(table_data_len * 8).unwrap(), DeviceAlignment::new(1).unwrap()).unwrap()
@@ -131,6 +135,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(OUTPUT_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
@@ -144,6 +149,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(OUTPUT_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
@@ -163,6 +169,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
@@ -176,6 +183,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
@@ -189,6 +197,7 @@ impl PfacGpu {
 			},
 			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
 			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()

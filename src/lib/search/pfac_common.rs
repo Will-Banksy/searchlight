@@ -1,5 +1,7 @@
 use std::{hash::{Hash, Hasher}, collections::{HashMap, hash_map::DefaultHasher}};
 
+use crate::sl_vinfo;
+
 use self::ir::{NodeIR, ConnectionIR};
 
 mod ir {
@@ -86,7 +88,7 @@ impl PfacTableBuilder {
 			})
 			.collect();
 
-		println!("PfacTable: {:?}", table);
+		sl_vinfo!("pfac_common", format!("PFAC Table: {:?}", table));
 
 		PfacTable { table }
 	}
