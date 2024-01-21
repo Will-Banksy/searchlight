@@ -3,10 +3,39 @@
 // TODO: Introduce feature flag for vulkan so it can be continued to be tested with github actions
 // TODO: Maybe change io_test.dat to be more random or to hit more edge cases or something
 
-use searchlight::{sl_info, sl_warn, sl_error};
+use std::fs;
+
+use searchlight::{sl_info, sl_error, lib::searchlight::{Searchlight, config::SearchlightConfig}};
 
 fn main() {
-	sl_info!("main", "Hello world!");
-	sl_warn!("main", "Hello world!");
-	sl_error!("main", "Hello world!");
+	let config_string = fs::read_to_string("Searchlight.toml");
+	if let Err(e) = config_string {
+		sl_error!("main", format!("Could not open config file \"Searchlight.toml\": {}", e));
+		return;
+	}
+	let config_string = config_string.unwrap();
+
+	let config = toml::from_str(&config_string);
+	if let Err(e) = config {
+		sl_error!("main", format!("Error processing config file \"Searchlight.toml\": {}", e));
+		return;
+	}
+	let config: SearchlightConfig = config.unwrap();
+
+	if !config.quiet {
+		sl_info!("main", format!("config: {:?}", config));
+	}
+
+	let searchlight = Searchlight::new(config);
+	if let Err(e) = searchlight {
+		sl_error!("main", format!("Failed to initialise Searchlight: {}", e));
+		return;
+	}
+	let searchlight = searchlight.unwrap();
+
+	// let result = searchlight.open("path/to/image");
+	// if let Err(e) = result {
+	// 	sl_error!("main", format!("Failed to open disk image file {}", e));
+	// 	return;
+	// }
 }

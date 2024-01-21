@@ -1,5 +1,7 @@
 #[cfg(feature = "gpu")]
 mod vulkan_error {
+	use std::fmt::Display;
+
 	use vulkano::{self, LoadingError, ValidationError, Validated, memory::allocator::MemoryAllocatorError, buffer::AllocateBufferError, command_buffer::CommandBufferExecError};
 
 	#[derive(Debug)]
@@ -10,6 +12,19 @@ mod vulkan_error {
 		NoVulkanImplementations,
 		VulkanMallocError(MemoryAllocatorError),
 		VulkanCmdExecError(CommandBufferExecError)
+	}
+
+	impl Display for VulkanError {
+		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			write!(f, "{}", match self {
+				VulkanError::VulkanLoadError(e) => e.to_string(),
+				VulkanError::VulkanError(e) => e.to_string(),
+				VulkanError::VulkanValidationError(e) => e.to_string(),
+				VulkanError::NoVulkanImplementations => "No appropriate vulkan implementations found on the system".to_string(),
+				VulkanError::VulkanMallocError(e) => e.to_string(),
+				VulkanError::VulkanCmdExecError(e) => e.to_string(),
+			})
+		}
 	}
 
 	macro_rules! impl_from_for_variant {
@@ -45,6 +60,8 @@ mod vulkan_error {
 	}
 }
 
+use std::fmt::Display;
+
 #[cfg(feature = "gpu")]
 pub use self::vulkan_error::VulkanError;
 
@@ -61,7 +78,17 @@ pub use self::vulkan_error::VulkanError;
 #[derive(Debug)]
 pub enum Error {
 	#[cfg(feature = "gpu")]
-	VulkanError(VulkanError)
+	VulkanError(VulkanError),
+	ConfigValidationError(String)
+}
+
+impl Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", match self {
+			Error::VulkanError(e) => e.to_string(),
+			Error::ConfigValidationError(msg) => msg.to_string(),
+		})
+	}
 }
 
 #[cfg(feature = "gpu")]

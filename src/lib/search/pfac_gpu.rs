@@ -286,7 +286,7 @@ impl PfacGpu {
 		})
 	}
 
-	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<PfacFuture, Error> {
+	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<PfacFuture, Error> { // TODO: Perhaps build in some kind of overflow detection for matches
 		let upload_subbuffer_host = Subbuffer::new(Arc::clone(&self.upload_buffer_host));
 		{
 			let mut upload_subbuffer_host_wlock = upload_subbuffer_host.write().unwrap();

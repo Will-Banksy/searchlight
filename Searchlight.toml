@@ -1,0 +1,6 @@
+verbose = true
+
+[[file_type]]
+extension = "jpg"
+headers = [ [ 0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10 ] ]
+max_len = 10240

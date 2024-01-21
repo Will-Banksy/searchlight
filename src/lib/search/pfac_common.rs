@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, collections::{HashMap, hash_map::DefaultHasher}};
 
-use crate::sl_vinfo;
+use crate::sl_info;
 
 use self::ir::{NodeIR, ConnectionIR};
 
@@ -88,7 +88,7 @@ impl PfacTableBuilder {
 			})
 			.collect();
 
-		sl_vinfo!("pfac_common", format!("PFAC Table: {:?}", table));
+		sl_info!("pfac_common", format!("PFAC Table: {:?}", table));
 
 		PfacTable { table }
 	}

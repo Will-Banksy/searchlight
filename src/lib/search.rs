@@ -1,3 +1,9 @@
+pub mod pfac_common;
+pub mod pfac_cpu;
+#[cfg(feature = "gpu")]
+pub mod pfac_gpu;
+pub mod pairing;
+
 use self::{pfac_cpu::PfacCpu, pfac_common::PfacTable};
 
 #[cfg(feature = "gpu")]
@@ -7,11 +13,6 @@ use super::error::Error;
 
 #[cfg(feature = "gpu")]
 use pfac_gpu::PfacGpu;
-
-pub mod pfac_common;
-pub mod pfac_cpu;
-#[cfg(feature = "gpu")]
-pub mod pfac_gpu;
 
 /// A result from searching, includes a start and end, and an id generated from the FNV-1a hash of the bytes of the match.
 /// Using the FNV-1a hashing algorithm as it is very simple, with good characteristics, and is fast

@@ -135,7 +135,7 @@ pub enum AccessPattern {
 	Unspecified
 }
 
-impl IoManager {
+impl IoManager { // TODO: Rethink I/O management in searchlight. In cases, it could be extremely helpful to expose I/O backend-specific functionality such as with memory maps
 	/// Create a new I/O manager to manage multiple read/write operations to different files
 	pub fn new() -> Self {
 		IoManager { io_backends: HashMap::new() }
