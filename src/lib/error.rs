@@ -2,7 +2,7 @@
 mod vulkan_error {
 	use std::fmt::Display;
 
-	use vulkano::{self, LoadingError, ValidationError, Validated, memory::allocator::MemoryAllocatorError, buffer::AllocateBufferError, command_buffer::CommandBufferExecError};
+	use vulkano::{self, LoadingError, ValidationError, Validated, memory::allocator::MemoryAllocatorError, buffer::AllocateBufferError, command_buffer::CommandBufferExecError, image::AllocateImageError};
 
 	#[derive(Debug)]
 	pub enum VulkanError { // TODO: Probably use a name for this enum other than VulkanError (since it conflicts with the vulkano::VulkanError)?
@@ -11,7 +11,8 @@ mod vulkan_error {
 		VulkanValidationError(Box<ValidationError>),
 		NoVulkanImplementations,
 		VulkanMallocError(MemoryAllocatorError),
-		VulkanCmdExecError(CommandBufferExecError)
+		VulkanCmdExecError(CommandBufferExecError),
+		VulkanAllocImageError(AllocateImageError)
 	}
 
 	impl Display for VulkanError {
@@ -23,6 +24,7 @@ mod vulkan_error {
 				VulkanError::NoVulkanImplementations => "No appropriate vulkan implementations found on the system".to_string(),
 				VulkanError::VulkanMallocError(e) => e.to_string(),
 				VulkanError::VulkanCmdExecError(e) => e.to_string(),
+				VulkanError::VulkanAllocImageError(e) => e.to_string(),
 			})
 		}
 	}
@@ -42,6 +44,7 @@ mod vulkan_error {
 	impl_from_for_variant!(VulkanError::VulkanValidationError, Box<ValidationError>);
 	impl_from_for_variant!(VulkanError::VulkanMallocError, MemoryAllocatorError);
 	impl_from_for_variant!(VulkanError::VulkanCmdExecError, CommandBufferExecError);
+	impl_from_for_variant!(VulkanError::VulkanAllocImageError, AllocateImageError);
 
 	impl<T> From<Validated<T>> for VulkanError where T: Into<VulkanError> {
 		fn from(value: Validated<T>) -> Self {
@@ -85,6 +88,7 @@ pub enum Error {
 impl Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", match self {
+			#[cfg(feature = "gpu")]
 			Error::VulkanError(e) => e.to_string(),
 			Error::ConfigValidationError(msg) => msg.to_string(),
 		})

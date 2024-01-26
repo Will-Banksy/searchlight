@@ -1,5 +1,28 @@
+// Paper on optimized GPGPU Aho-Corasick: https://ieeexplore.ieee.org/document/6680959
+// This is a paper from 2013 that claims it's GPU-accelerated AC strategy can get up to more than 127 GB/s throughput (on an Nvidia GeForce GTX 285 -
+// my RX 6950 XT, according to user benchmark, is 2041% faster)
+// Optimisations noted:
+// - They used a Deterministic Finite Automata with failure states
+// - They constructed the STT to have 257 columns, 1 for each byte value and 1 for whether the match was a failure or success, and each row representing a state, where STT[i][j] gets the next state
+// - They stored the STT in texture memory since it's optimised for 2D data
+// - They stored the input data in global device memory (using a CUDA zero-copy) and then cached it in shared memory with coalesced memory accesses (global memory accesses that fall within a 128-byte range are,
+//   apparently, combined together into one memory load request which reduces latency). Each thread loads more than 1 byte at once, caching into shared memory with the coalesced memory accesses
+// - Shared memory is split into separate banks, and two threads accessing the same bank at the same time introduces conflicts, and as a result, latency. To avoid this, a storing scheme
+//   was devised to eliminate/reduce shared memory bank conflicts
+//
+// Conclusions were that zero-copy transfer of input data to global memory combined with the shared memory approach (coalescing accesses and avoiding shared memory bank conflicts) were significant in
+// upping the throughput from 2-2.5 GB/s to 127 GB/s
+//
+// Noted by me however is that there is very little discussion of storing data from the compute kernel - i.e., storing matches
+//
+// Additional performance/optimization notes:
+// - https://www.reddit.com/r/vulkan/comments/aln5gt/vendor_queue_family_formalities_fast_framebuffer/
+// - https://gpuopen.com/wp-content/uploads/2016/03/VulkanFastPaths.pdf
+// - https://codereview.stackexchange.com/questions/259775/user-implementation-of-memcpy-where-to-optimize-further
+// - https://www.embedded.com/optimizing-memcpy-improves-speed/
+
 mod pfac_shaders {
-	pub mod pfac {
+	pub mod ac {
 		use vulkano_shaders::shader;
 
 		shader! {
@@ -9,126 +32,136 @@ mod pfac_shaders {
 	}
 }
 
-use std::{sync::Arc, ops::DerefMut, io::Write, time::Duration};
+use std::{sync::Arc, ops::DerefMut, time::Duration, io::Write};
 
-use vulkano::{VulkanLibrary, instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Device, DeviceCreateInfo, QueueCreateInfo, Features, Queue}, memory::{allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocator, DeviceLayout, MemoryAllocatePreference}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo}, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet}, sync::{self, GpuFuture}};
+use vulkano::{instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Features, Device, DeviceCreateInfo, QueueCreateInfo, Queue}, VulkanLibrary, memory::{allocator::{StandardMemoryAllocator, MemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocatePreference, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::{PipelineDescriptorSetLayoutCreateInfo, PushConstantRange, PipelineLayoutCreateFlags}, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet, layout::{DescriptorSetLayoutCreateInfo, DescriptorSetLayoutBinding, DescriptorType}}, image::{Image, ImageCreateInfo, ImageType, ImageUsage, view::ImageView}, format::Format, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo, CopyBufferInfo}, sync::{self, GpuFuture}, shader::ShaderStage};
 
-use crate::{lib::{error::{Error, VulkanError}, utils::chunk_iter::ToChunksExact}, sl_info};
+use crate::{lib::{error::{Error, VulkanError}, utils::iter::ToChunksExact}, sl_info};
 
-use super::{pfac_common::PfacTable, Match, PfacFuture};
+use super::{search_common::AcTable, SearchFuture, Match, Searcher};
 
-const UPLOAD_BUFFER_SIZE: u64 = (1024 * 1024) + 4;
+const INPUT_BUFFER_SIZE: u64 = 1024 * 1024;
 const OUTPUT_BUFFER_SIZE: u64 = 1024 * 1024;
-const STATE_BUFFER_SIZE: u64 = 1024; // If changing change in shader too
 
 pub struct PfacGpu {
 	vkdev: Arc<Device>,
-	vkqueue: Arc<Queue>,
+	vkqueue_comp: Arc<Queue>,
 	vkcmd_buf_alloc: StandardCommandBufferAllocator,
 	vkpipeline: Arc<ComputePipeline>,
 	vkdescriptor_set: Arc<PersistentDescriptorSet>,
-	upload_buffer_host: Arc<Buffer>,
-	upload_buffer_device: Arc<Buffer>,
+	input_buffer_host: Arc<Buffer>,
+	input_buffer_device: Arc<Buffer>,
 	output_buffer_host: Arc<Buffer>,
-	output_buffer_device: Arc<Buffer>,
-	out_state_buffer_host: Arc<Buffer>,
-	out_state_buffer_device: Arc<Buffer>,
-	in_state_buffer_device: Arc<Buffer>,
+	output_buffer_device: Arc<Buffer>
 }
 
 impl PfacGpu {
-	/// Creates a new instance of PfacGpu, initialising Vulkan, and returning an Err if Vulkan was unable to be initialised
-	pub fn new(table: PfacTable) -> Result<Self, Error> {
+	pub fn new(table: AcTable) -> Result<Self, Error> {
+		let req_device_extensions = DeviceExtensions::default();
+		let req_features = Features {
+			uniform_and_storage_buffer8_bit_access: true,
+			shader_int8: true,
+			shader_int64: true,
+			..Default::default()
+		};
+
 		// Initialise vulkan library and create vulkan instance
 		let vklib = VulkanLibrary::new().map_err(Error::from)?;
 		let vkins = Instance::new(vklib, InstanceCreateInfo::default()).map_err(Error::from)?;
 
-		// Select a vulkan implementation and queue family index using `select_compute_device`
-		let (vkphys, vkqf_idx) = Self::select_compute_device(vkins, &DeviceExtensions {
-			// khr_shader_non_semantic_info: true,
-			// khr_8bit_storage: true,
-			..DeviceExtensions::default()
-		}, QueueFlags::COMPUTE).ok_or(VulkanError::NoVulkanImplementations)?;
+		let (vkphys, vkqfidx_comp) = Self::select_device(&vkins, &req_device_extensions).ok_or(VulkanError::NoVulkanImplementations)?;
 
 		sl_info!("pfac_gpu", format!("Using physical vulkan device: {} (type {:?})", vkphys.properties().device_name, vkphys.properties().device_type));
 
-		// Initialise a logical vulkan device and queue objects
-		let (vkdev, mut vkqueues) = Device::new(vkphys, DeviceCreateInfo {
-			queue_create_infos: vec![QueueCreateInfo {
-				queue_family_index: vkqf_idx, ..Default::default()
-			}],
-			enabled_features: Features {
-				uniform_and_storage_buffer8_bit_access: true,
-				shader_int64: true,
-				..Default::default()
-			},
+		let (vkdev, mut vkqueues) = Device::new(Arc::clone(&vkphys), DeviceCreateInfo {
+			queue_create_infos: vec![
+				QueueCreateInfo {
+					queue_family_index: vkqfidx_comp,
+					..Default::default()
+				}
+			],
+			enabled_extensions: req_device_extensions,
+			enabled_features: req_features,
 			..Default::default()
 		}).map_err(Error::from)?;
 
-		// We requested one queue, and Device::new returns an interator over queues, so extract & unwrap queue
-		let vkqueue = vkqueues.next().expect("No vulkan queues were found");
+		let vkqueue_comp = vkqueues.next().ok_or(VulkanError::NoVulkanImplementations)?;
 
-		let malloc = Arc::new(StandardMemoryAllocator::new_default(Arc::clone(&vkdev)));
+		let vkmalloc = Arc::new(StandardMemoryAllocator::new_default(Arc::clone(&vkdev)));
 
-		let upload_buffer_host = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+		let input_buffer_host = Buffer::new(
+			Arc::clone(&vkmalloc) as Arc<dyn MemoryAllocator>,
 			BufferCreateInfo {
 				usage: BufferUsage::TRANSFER_SRC,
 				..Default::default()
 			},
 			AllocationCreateInfo {
-				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
 				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
-			DeviceLayout::new(NonZeroDeviceSize::new(UPLOAD_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
+			DeviceLayout::new(
+				NonZeroDeviceSize::new(INPUT_BUFFER_SIZE).unwrap(),
+				DeviceAlignment::new(64).unwrap()
+			).unwrap()
 		).map_err(Error::from)?;
 
-		let upload_buffer_device = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+		let input_buffer_device = Buffer::new(
+			Arc::clone(&vkmalloc) as Arc<dyn MemoryAllocator>,
 			BufferCreateInfo {
-				usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+				usage: BufferUsage::TRANSFER_DST | BufferUsage::STORAGE_BUFFER,
 				..Default::default()
-			}, AllocationCreateInfo {
+			},
+			AllocationCreateInfo {
 				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
 				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
-			DeviceLayout::new(NonZeroDeviceSize::new(UPLOAD_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
+			DeviceLayout::new(
+				NonZeroDeviceSize::new(INPUT_BUFFER_SIZE).unwrap(),
+				DeviceAlignment::new(64).unwrap()
+			).unwrap()
 		).map_err(Error::from)?;
 
-		let table_data: Vec<u32> = table.encode().into_iter().flat_map(|elem| [ (elem & 0xff) as u32, ((elem >> 32) & 0xff) as u32 ]).collect();
-		let table_data_len = table_data.len() as u64;
-
-		let table_buffer_host = Buffer::from_iter(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+		let table_buffer_host = Buffer::new(
+			Arc::clone(&vkmalloc) as Arc<dyn MemoryAllocator>,
 			BufferCreateInfo {
 				usage: BufferUsage::TRANSFER_SRC,
 				..Default::default()
 			},
 			AllocationCreateInfo {
-				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+				memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
 				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
-			table_data
+			DeviceLayout::new(
+				NonZeroDeviceSize::new((table.indexable_columns() * table.num_rows() * 4) as u64).unwrap(),
+				DeviceAlignment::new(8).unwrap()
+			).unwrap()
 		).map_err(Error::from)?;
 
-		let table_buffer_device = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
-			BufferCreateInfo {
-				usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
-				..Default::default()
-			}, AllocationCreateInfo {
-				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
+		let table_image_device = Image::new(
+			Arc::clone(&vkmalloc) as Arc<dyn MemoryAllocator>,
+			ImageCreateInfo {
+				image_type: ImageType::Dim2d,
+				format: Format::R32_UINT,
+				extent: [table.indexable_columns() as u32, table.num_rows() as u32, 1],
+				usage: ImageUsage::TRANSFER_DST | ImageUsage::STORAGE,
 				..Default::default()
 			},
-			DeviceLayout::new(NonZeroDeviceSize::new(table_data_len * 8).unwrap(), DeviceAlignment::new(1).unwrap()).unwrap()
+			AllocationCreateInfo::default()
 		).map_err(Error::from)?;
+
+		let table_subbuffer_host = Subbuffer::new(Arc::clone(&table_buffer_host));
+		{
+			let mut table_subbuffer_host_wlock = table_subbuffer_host.write().unwrap();
+			table_subbuffer_host_wlock.deref_mut().write(&table.encode_indexable().into_iter().flat_map(|uint| uint.to_ne_bytes()).collect::<Vec<u8>>()).unwrap();
+		}
+
+		let table_imageview_device = ImageView::new_default(Arc::clone(&table_image_device)).map_err(Error::from)?;
 
 		let output_buffer_host = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+			Arc::clone(&vkmalloc) as Arc<dyn MemoryAllocator>,
 			BufferCreateInfo {
 				usage: BufferUsage::TRANSFER_DST | BufferUsage::TRANSFER_SRC,
 				..Default::default()
@@ -138,11 +171,14 @@ impl PfacGpu {
 				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
-			DeviceLayout::new(NonZeroDeviceSize::new(OUTPUT_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
+			DeviceLayout::new(
+				NonZeroDeviceSize::new(OUTPUT_BUFFER_SIZE).unwrap(),
+				DeviceAlignment::new(8).unwrap()
+			).unwrap()
 		).map_err(Error::from)?;
 
 		let output_buffer_device = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
+			Arc::clone(&vkmalloc) as Arc<dyn MemoryAllocator>,
 			BufferCreateInfo {
 				usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_SRC | BufferUsage::TRANSFER_DST,
 				..Default::default()
@@ -152,7 +188,10 @@ impl PfacGpu {
 				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
 				..Default::default()
 			},
-			DeviceLayout::new(NonZeroDeviceSize::new(OUTPUT_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
+			DeviceLayout::new(
+				NonZeroDeviceSize::new(OUTPUT_BUFFER_SIZE).unwrap(),
+				DeviceAlignment::new(8).unwrap()
+			).unwrap()
 		).map_err(Error::from)?;
 
 		let output_subbuffer_host = Subbuffer::new(Arc::clone(&output_buffer_host));
@@ -161,55 +200,11 @@ impl PfacGpu {
 			output_subbuffer_host_wlock.deref_mut().fill(0u8);
 		}
 
-		let out_state_buffer_host = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
-			BufferCreateInfo {
-				usage: BufferUsage::TRANSFER_SRC,
-				..Default::default()
-			},
-			AllocationCreateInfo {
-				memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
-				..Default::default()
-			},
-			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
-		).map_err(Error::from)?;
-
-		let out_state_buffer_device = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
-			BufferCreateInfo {
-				usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST | BufferUsage::TRANSFER_SRC,
-				..Default::default()
-			},
-			AllocationCreateInfo {
-				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
-				..Default::default()
-			},
-			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
-		).map_err(Error::from)?;
-
-		let in_state_buffer_device = Buffer::new(
-			Arc::clone(&malloc) as Arc<dyn MemoryAllocator>,
-			BufferCreateInfo {
-				usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
-				..Default::default()
-			},
-			AllocationCreateInfo {
-				memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-				allocate_preference: MemoryAllocatePreference::AlwaysAllocate,
-				..Default::default()
-			},
-			DeviceLayout::new(NonZeroDeviceSize::new(STATE_BUFFER_SIZE).unwrap(), DeviceAlignment::new(8).unwrap()).unwrap()
-		).map_err(Error::from)?;
-
-		let out_state_subbuffer_host = Subbuffer::new(Arc::clone(&out_state_buffer_host));
-		{
-			let mut out_state_subbuffer_host_wlock = out_state_subbuffer_host.write().unwrap();
-			out_state_subbuffer_host_wlock.deref_mut().fill(0u8);
-		}
-
-		let pfac_shader = pfac_shaders::pfac::load(Arc::clone(&vkdev)).unwrap();
+		let pfac_shader = pfac_shaders::ac::load(Arc::clone(&vkdev)).map_err(Error::from)?
+			.specialize(
+				[(0, table.max_pat_len.into())].into_iter().collect()
+			)
+			.map_err(Error::from)?;
 		let pfac_entry_point = pfac_shader.entry_point("main").unwrap();
 
 		let pfac_pipeline = {
@@ -217,53 +212,85 @@ impl PfacGpu {
 
 			let pfac_pipeline_layout = PipelineLayout::new(
 				Arc::clone(&vkdev),
-				PipelineDescriptorSetLayoutCreateInfo::from_stages([&pfac_pipeline_stage])
-					.into_pipeline_layout_create_info(Arc::clone(&vkdev))
-					.expect("Failed to create pipeline layout create info")
+				PipelineDescriptorSetLayoutCreateInfo {
+					set_layouts: vec![
+						DescriptorSetLayoutCreateInfo {
+							bindings: [
+								(0, DescriptorSetLayoutBinding {
+									stages:	ShaderStage::Compute.into(),
+									descriptor_count: 1,
+									..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::StorageBuffer)
+								}),
+								(1, DescriptorSetLayoutBinding {
+									stages:	ShaderStage::Compute.into(),
+									descriptor_count: 1,
+									..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::StorageImage)
+								}),
+								(2, DescriptorSetLayoutBinding {
+									stages:	ShaderStage::Compute.into(),
+									descriptor_count: 1,
+									..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::StorageBuffer)
+								}),
+							].into(),
+							..Default::default()
+						}
+					],
+					push_constant_ranges: vec![
+						PushConstantRange {
+							stages: ShaderStage::Compute.into(),
+							offset: 0,
+							size: 16
+						}
+					],
+					flags: PipelineLayoutCreateFlags::default()
+				}.into_pipeline_layout_create_info(Arc::clone(&vkdev)).expect("Failed to create pipeline layout create info")
+				// PipelineDescriptorSetLayoutCreateInfo::from_stages([&ac_pipeline_stage])
+				// 	.into_pipeline_layout_create_info(Arc::clone(&vkdev))
+				// 	.expect("Failed to create pipeline layout create info")
 			).map_err(Error::from)?;
 
-			ComputePipeline::new(Arc::clone(&vkdev), None, ComputePipelineCreateInfo::stage_layout(pfac_pipeline_stage, pfac_pipeline_layout)).map_err(Error::from)?
+			ComputePipeline::new(
+				Arc::clone(&vkdev),
+				None,
+				ComputePipelineCreateInfo::stage_layout(pfac_pipeline_stage, pfac_pipeline_layout)
+			).map_err(Error::from)?
 		};
 
 		let descriptor_set = {
-			let desc_set_alloc = StandardDescriptorSetAllocator::new(Arc::clone(&vkdev), StandardDescriptorSetAllocatorCreateInfo::default());
-			let descriptor_set_layout = Arc::clone(&pfac_pipeline.layout().set_layouts()[0]);
+			let desc_set_alloc = StandardDescriptorSetAllocator::new(
+				Arc::clone(&vkdev),
+				StandardDescriptorSetAllocatorCreateInfo::default()
+			);
+			let desc_set_layout = Arc::clone(&pfac_pipeline.layout().set_layouts()[0]);
 			PersistentDescriptorSet::new(
 				&desc_set_alloc,
-				descriptor_set_layout,
+				desc_set_layout,
 				[
-					WriteDescriptorSet::buffer(0, Subbuffer::new(Arc::clone(&upload_buffer_device))),
-					WriteDescriptorSet::buffer(1, Subbuffer::new(Arc::clone(&table_buffer_device))),
-					WriteDescriptorSet::buffer(2, Subbuffer::new(Arc::clone(&output_buffer_device))),
-					WriteDescriptorSet::buffer(3, Subbuffer::new(Arc::clone(&out_state_buffer_device))),
-					WriteDescriptorSet::buffer(4, Subbuffer::new(Arc::clone(&in_state_buffer_device)))
+					// Descriptors
+					WriteDescriptorSet::buffer(0, Subbuffer::new(Arc::clone(&input_buffer_device))),
+					WriteDescriptorSet::image_view(1, table_imageview_device),
+					WriteDescriptorSet::buffer(2, Subbuffer::new(Arc::clone(&output_buffer_device)))
 				],
 				[]
 			).map_err(Error::from)?
 		};
 
-		let cmd_buf_alloc = StandardCommandBufferAllocator::new(Arc::clone(&vkdev), StandardCommandBufferAllocatorCreateInfo { primary_buffer_count: 1, secondary_buffer_count: 1, ..Default::default() });
+		let cmd_buf_alloc = StandardCommandBufferAllocator::new(Arc::clone(&vkdev), StandardCommandBufferAllocatorCreateInfo::default());
 
-		let one_time_cmd_buf = {
-			let mut builder = AutoCommandBufferBuilder::primary(&cmd_buf_alloc, vkqf_idx, CommandBufferUsage::OneTimeSubmit).map_err(Error::from)?;
+		let setup_cmd_buf = {
+			let mut builder = AutoCommandBufferBuilder::primary(&cmd_buf_alloc, vkqfidx_comp, CommandBufferUsage::OneTimeSubmit).map_err(Error::from)?;
 
 			builder
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&upload_buffer_host)), Subbuffer::new(Arc::clone(&upload_buffer_device))))
-				.map_err(Error::from)?
-				.copy_buffer(CopyBufferInfo::buffers(table_buffer_host, Subbuffer::new(Arc::clone(&table_buffer_device))))
+				.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(Subbuffer::new(table_buffer_host), table_image_device))
 				.map_err(Error::from)?
 				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&output_buffer_host)), Subbuffer::new(Arc::clone(&output_buffer_device))))
-				.map_err(Error::from)?
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&out_state_buffer_host)), Subbuffer::new(Arc::clone(&out_state_buffer_device))))
-				.map_err(Error::from)?
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&out_state_buffer_host)), Subbuffer::new(Arc::clone(&in_state_buffer_device))))
 				.map_err(Error::from)?;
 
 			builder.build().map_err(Error::from)?
 		};
 
 		sync::now(Arc::clone(&vkdev))
-			.then_execute(Arc::clone(&vkqueue), Arc::clone(&one_time_cmd_buf))
+			.then_execute(Arc::clone(&vkqueue_comp), Arc::clone(&setup_cmd_buf))
 			.map_err(Error::from)?
 			.then_signal_fence_and_flush()
 			.map_err(Error::from)?
@@ -272,54 +299,65 @@ impl PfacGpu {
 
 		Ok(PfacGpu {
 			vkdev,
-			vkqueue,
+			vkqueue_comp,
 			vkcmd_buf_alloc: cmd_buf_alloc,
 			vkpipeline: pfac_pipeline,
 			vkdescriptor_set: descriptor_set,
-			upload_buffer_host,
-			upload_buffer_device,
+			input_buffer_host,
+			input_buffer_device,
 			output_buffer_host,
 			output_buffer_device,
-			out_state_buffer_host,
-			out_state_buffer_device,
-			in_state_buffer_device
 		})
 	}
 
-	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<PfacFuture, Error> { // TODO: Perhaps build in some kind of overflow detection for matches
-		let upload_subbuffer_host = Subbuffer::new(Arc::clone(&self.upload_buffer_host));
-		{
-			let mut upload_subbuffer_host_wlock = upload_subbuffer_host.write().unwrap();
-			let data_len_bytes = (data.len() as u32).to_ne_bytes(); // Vulkan mandates that endianness is the same between host and device
+	// Attempts to find the best Vulkan implementation and queue family indices for compute and transfer operations, returned in that order
+	fn select_device(instance: &Arc<Instance>, device_extensions: &DeviceExtensions) -> Option<(Arc<PhysicalDevice>, u32)> {
+		instance.enumerate_physical_devices().expect("Cannot enumerate physical devices")
+			.filter(|p| p.supported_extensions().contains(&device_extensions))
+			.filter_map(|p| {
+				// The Vulkan specs guarantee that a compliant implementation must provide at least one queue that supports compute operations
+				p.queue_family_properties().iter().enumerate()
+					.position(|(_, q)| {
+						q.queue_flags.contains(QueueFlags::COMPUTE | QueueFlags::TRANSFER)
+					})
+					.map(|i| (Arc::clone(&p), i as u32))
+			})
+			.min_by_key(|(p, _)| match p.properties().device_type { // Order by device type. Preferably we want to use a discrete gpu
+				PhysicalDeviceType::DiscreteGpu => 0,
+				PhysicalDeviceType::IntegratedGpu => 1,
+				PhysicalDeviceType::VirtualGpu => 2,
+				PhysicalDeviceType::Cpu => 3,
+				PhysicalDeviceType::Other => 4,
+				_ => 5
+			})
+	}
+}
 
-			let to_write: Vec<u8> = data_len_bytes.into_iter().chain(data.iter().copied()).collect();
+impl Searcher for PfacGpu {
+	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
+		self.search(data, data_offset)
+	}
 
-			upload_subbuffer_host_wlock.deref_mut().write(&to_write).unwrap();
-		}
+	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
+		let input_subbuffer_host = Subbuffer::new(Arc::clone(&self.input_buffer_host));
+		let input_bytes_written = {
+			let mut input_subbuffer_host_wlock = input_subbuffer_host.write().unwrap();
 
-		let output_subbuffer_host = Subbuffer::new(Arc::clone(&self.output_buffer_host));
-		{
-			let mut output_subbuffer_host_wlock = output_subbuffer_host.write().unwrap();
-			output_subbuffer_host_wlock.deref_mut().fill(0u8);
-		}
-
-		let shader_metadata_pc = pfac_shaders::pfac::Metadata {
-			offset: data_offset
+			input_subbuffer_host_wlock.deref_mut().write(data).unwrap()//.write_vectored(&data.chunks(512).map(|c| IoSlice::new(c)).collect::<Vec<IoSlice>>()).unwrap()
 		};
 
-		let cmd_buffer = {
-			let mut builder = AutoCommandBufferBuilder::primary(&self.vkcmd_buf_alloc, self.vkqueue.queue_family_index(), CommandBufferUsage::OneTimeSubmit).map_err(Error::from)?;
+		let shader_pc = pfac_shaders::ac::ExtraInfo {
+			offset: data_offset,
+			input_len: input_bytes_written as u32 // This should never overflow since we're using the number of bytes *written* which we have control over
+		};
 
-			let pfac_work_group_counts = [(UPLOAD_BUFFER_SIZE / 64) as u32, 1, 1]; // TODO: Use a 2D work group count and change the compute shader accordingly, to allow for a larger size of work groups
+		let dispatch_cmd_buf = {
+			let mut builder = AutoCommandBufferBuilder::primary(&self.vkcmd_buf_alloc, self.vkqueue_comp.queue_family_index(), CommandBufferUsage::OneTimeSubmit).map_err(Error::from)?;
 
 			builder
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.upload_buffer_host)), Subbuffer::new(Arc::clone(&self.upload_buffer_device))))
+				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.input_buffer_host)), Subbuffer::new(Arc::clone(&self.input_buffer_device))))
 				.map_err(Error::from)?
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.output_buffer_host)), Subbuffer::new(Arc::clone(&self.output_buffer_device))))
-				.map_err(Error::from)?
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.out_state_buffer_device)), Subbuffer::new(Arc::clone(&self.in_state_buffer_device))))
-				.map_err(Error::from)?
-				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.out_state_buffer_host)), Subbuffer::new(Arc::clone(&self.out_state_buffer_device))))
+				.fill_buffer(Subbuffer::new(Arc::clone(&self.output_buffer_device)).reinterpret::<[u32]>(), 0)
 				.map_err(Error::from)?
 				.bind_pipeline_compute(Arc::clone(&self.vkpipeline))
 				.map_err(Error::from)?
@@ -333,10 +371,10 @@ impl PfacGpu {
 				.push_constants(
 					Arc::clone(&self.vkpipeline.layout()),
 					0,
-					shader_metadata_pc
+					shader_pc
 				)
 				.map_err(Error::from)?
-				.dispatch(pfac_work_group_counts)
+				.dispatch([(INPUT_BUFFER_SIZE / 64) as u32, 1, 1])
 				.map_err(Error::from)?
 				.copy_buffer(CopyBufferInfo::buffers(Subbuffer::new(Arc::clone(&self.output_buffer_device)), Subbuffer::new(Arc::clone(&self.output_buffer_host))))
 				.map_err(Error::from)?;
@@ -345,14 +383,14 @@ impl PfacGpu {
 		};
 
 		let fence_fut = sync::now(Arc::clone(&self.vkdev))
-			.then_execute(Arc::clone(&self.vkqueue), Arc::clone(&cmd_buffer))
+			.then_execute(Arc::clone(&self.vkqueue_comp), dispatch_cmd_buf)
 			.map_err(Error::from)?
 			.then_signal_fence_and_flush()
 			.map_err(Error::from)?;
 
 		let output_buffer_host = Arc::clone(&self.output_buffer_host);
 
-		Ok(PfacFuture::new(move || {
+		Ok(SearchFuture::new(move || {
 			fence_fut
 				.wait(Some(Duration::from_secs(30)))
 				.map_err(Error::from)?;
@@ -376,48 +414,27 @@ impl PfacGpu {
 			Ok(results)
 		}))
 	}
-
-	pub fn discard_progress(&mut self) -> Result<(), Error> {
-		todo!() // TODO: Discard progress capabilities or perhaps rethink the "discard_progress" model (maybe pass bool to search_next like "track_progress")
-	}
-
-	// Attempts to find the best Vulkan implementation and QueueFamily (returned as an index)
-	fn select_compute_device(instance: Arc<Instance>, device_extensions: &DeviceExtensions, queue_flags: QueueFlags) -> Option<(Arc<PhysicalDevice>, u32)> {
-		instance.enumerate_physical_devices().expect("Cannot enumerate physical devices")
-			.filter(|p| p.supported_extensions().contains(&device_extensions))
-			.filter_map(|p| {
-				// The Vulkan specs guarantee that a compliant implementation must provide at least one queue that supports compute operations
-				p.queue_family_properties().iter().enumerate()
-					.position(|(_, q)| {
-						q.queue_flags.contains(queue_flags)
-					})
-					.map(|i| (Arc::clone(&p), i as u32))
-			})
-			.min_by_key(|(p, _)| match p.properties().device_type { // Order by device type. Preferably we want to use a discrete gpu
-				PhysicalDeviceType::DiscreteGpu => 0,
-				PhysicalDeviceType::IntegratedGpu => 1,
-				PhysicalDeviceType::VirtualGpu => 2,
-				PhysicalDeviceType::Cpu => 3,
-				PhysicalDeviceType::Other => 4,
-				_ => 5
-			})
-	}
 }
 
 #[cfg(test)]
 mod test {
-	use crate::lib::search::{Match, pfac_common::PfacTableBuilder, match_id_hash_slice, pfac_gpu::PfacGpu};
+	use crate::lib::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, pfac_gpu::PfacGpu, Searcher};
 
 	#[test]
 	fn test_pfac_gpu_single() {
-		let buffer = [ 1, 2, 3, 8, 4, 1, 2, 3, 1, 1, 2, 1, 2, 3, 0, 5, 9, 1, 2 ];
+		let buffer = [
+			1, 2, 3, 8, 4,
+			1, 2, 3, 1, 1,
+			2, 1, 2, 3, 0,
+			5, 9, 1, 2
+		];
 
 		let pattern = &[1, 2, 3];
 		let pattern_id = match_id_hash_slice(pattern);
 
-		let pfac_table = PfacTableBuilder::new(true).with_pattern(pattern).build();
-		let mut pfac = PfacGpu::new(pfac_table).unwrap();
-		let matches = pfac.search_next(&buffer, 0).unwrap();
+		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
+		let mut ac = PfacGpu::new(pfac_table).unwrap();
+		let matches = ac.search(&buffer, 0).unwrap();
 
 		let expected = vec![
 			Match {
@@ -447,11 +464,11 @@ mod test {
 		let pattern = &[ 1, 2, 3, 4, 5 ];
 		let pattern_id = match_id_hash_slice(pattern);
 
-		let pfac_table = PfacTableBuilder::new(true).with_pattern(pattern).build();
-		let mut pfac = PfacGpu::new(pfac_table).unwrap();
-		let mut matches = pfac.search_next(&buffer[..8], 0).unwrap().wait().unwrap();
-		matches.append(&mut pfac.search_next(&buffer[8..10], 8).unwrap().wait().unwrap());
-		matches.append(&mut pfac.search_next(&buffer[10..], 10).unwrap().wait().unwrap());
+		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
+		let mut ac = PfacGpu::new(pfac_table).unwrap();
+		let mut matches = ac.search(&buffer[..8], 0).unwrap().wait().unwrap();
+		matches.append(&mut ac.search_next(&buffer[3..10], 3).unwrap().wait().unwrap());
+		matches.append(&mut ac.search_next(&buffer[5..], 5).unwrap().wait().unwrap());
 
 		let expected = vec![
 			Match {

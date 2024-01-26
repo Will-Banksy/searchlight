@@ -77,7 +77,7 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 ///
 /// # Panics
 /// Panics if a file type has both no footers and no max length (which would be a config validation error),
-/// or if id_ftype_map is missing any match ids that are present in `matches` (e.g. )
+/// or if id_ftype_map is missing any match ids that are present in `matches`
 pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: HashMap<u64, (usize, &'a FileType, MatchPart)>, config: &'a SearchlightConfig) -> Vec<MatchPair<'a>> {
 	let mut complete_matches = Vec::new();
 	let match_tracker: HashMap<usize, Vec<Match>> = HashMap::new();

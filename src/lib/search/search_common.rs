@@ -18,31 +18,40 @@ mod ir {
 }
 
 #[derive(Debug)]
-pub struct PfacTableBuilder {
+pub struct AcTableBuilder {
 	pat_ir: Vec<NodeIR>,
 	start_idx: u32,
 	end_idx: u32,
 	do_suffix_opt: bool,
-	suffix_idx_map: HashMap<u64, u32>
+	suffix_idx_map: HashMap<u64, u32>,
+	max_pat_len: u32
 }
 
 #[derive(Debug, Clone)]
-pub struct PfacTableElem {
+pub struct AcTableElem {
 	pub next_state: u32,
 	pub value: u8
 }
 
 #[derive(Clone)]
-pub struct PfacTable {
-	pub table: Vec<Vec<PfacTableElem>>
+pub struct AcTable {
+	pub table: Vec<Vec<AcTableElem>>,
+	pub max_pat_len: u32
 }
 
-impl PfacTableBuilder {
+impl AcTableBuilder {
 	pub fn new(do_suffix_opt: bool) -> Self {
 		let start = NodeIR { next_paths: Vec::new() };
 		let end = NodeIR { next_paths: Vec::new(), };
 
-		PfacTableBuilder { pat_ir: vec![start, end], start_idx: 0, end_idx: 1, do_suffix_opt, suffix_idx_map: HashMap::new() }
+		AcTableBuilder {
+			pat_ir: vec![start, end],
+			start_idx: 0,
+			end_idx: 1,
+			do_suffix_opt,
+			suffix_idx_map: HashMap::new(),
+			max_pat_len: 0
+		}
 	}
 
 	pub fn with_pattern(mut self, pattern: &[u8]) -> Self {
@@ -77,29 +86,40 @@ impl PfacTableBuilder {
 				node_idx = next_node_idx as usize;
 			}
 		}
+
+		self.max_pat_len = self.max_pat_len.max(pattern.len() as u32);
+		println!("Pattern {:?} len = {}", pattern, pattern.len());
 	}
 
-	pub fn build(self) -> PfacTable {
-		let table: Vec<Vec<PfacTableElem>> = self.pat_ir.into_iter()
+	pub fn build(self) -> AcTable {
+		let table: Vec<Vec<AcTableElem>> = self.pat_ir.into_iter()
 			.map(|node| {
 				node.next_paths.into_iter()
-					.map(|conn| PfacTableElem { next_state: conn.connecting_to_uuid, value: conn.value })
+					.map(|conn| AcTableElem { next_state: conn.connecting_to_uuid, value: conn.value })
 					.collect()
 			})
 			.collect();
 
-		sl_info!("pfac_common", format!("PFAC Table: {:?}", table));
+		sl_info!("search_common", format!("AC Table: {:?}", table));
 
-		PfacTable { table }
+		AcTable { table, max_pat_len: self.max_pat_len }
 	}
 }
 
-impl PfacTable {
-	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&PfacTableElem> {
+impl AcTable {
+	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&AcTableElem> {
 		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value)
 	}
 
-	/// Encodes the pfac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value, prefixing each Vec with a u64 of the Vec's length.
+	pub fn num_rows(&self) -> usize {
+		self.table.len()
+	}
+
+	pub fn indexable_columns(&self) -> usize {
+		256
+	}
+
+	/// Encodes the ac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value, prefixing each Vec with a u64 of the Vec's length.
 	/// Each row is resized to be the same length, so the resulting Vec can be indexed as (i * row_len, j) where i is the row index, and j is the column index.
 	///
 	/// Returns the u64 Vec, with the first element being the length of the rows
@@ -107,7 +127,7 @@ impl PfacTable {
 		// Compute the maximum row size, +1 for each row needs to indicate it's length
 		let rlen = self.table.iter().fold(0, |acc, elem| if elem.len() > acc { elem.len() } else { acc }) + 1;
 
-		let mut accum = vec![0; self.table.len() * rlen];
+		let mut accum = vec![0; self.num_rows() * rlen];
 
 		let mut i = 0;
 		for row in &self.table {
@@ -132,19 +152,87 @@ impl PfacTable {
 
 		accum
 	}
+
+	pub fn encode_indexable(&self) -> Vec<u32> {
+		let rlen = self.indexable_columns();
+
+		let mut accum = vec![0u32; rlen * self.num_rows()];
+
+		for (i, row) in self.table.iter().enumerate() {
+			if row.is_empty() {
+				for j in 0..rlen {
+					accum[i * rlen + j] = u32::MAX;
+				}
+			}
+			for elem in row {
+				accum[i * rlen + elem.value as usize] = elem.next_state;
+			}
+		}
+
+		// TODO: Remove debugging code
+		// {
+		// 	let arr2d: Vec<&[u32]> = accum.chunks(256).collect();
+
+		// 	for (row_idx, row) in arr2d.iter().enumerate() {
+		// 		for (elem_idx, elem) in row.iter().enumerate() {
+		// 			if *elem != 0 {
+		// 				println!("elem at row {row_idx}, column {elem_idx} is {elem}");
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		accum
+	}
+}
+
+fn hash_suffix(suffix: &[u8]) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	suffix.hash(&mut hasher);
+	hasher.finish()
 }
 
 #[cfg(test)]
 mod test {
-    use crate::lib::search::pfac_common::ir::{NodeIR, ConnectionIR};
+    use crate::lib::search::search_common::ir::{NodeIR, ConnectionIR};
 
-    use super::PfacTableBuilder;
+    use super::AcTableBuilder;
+
+	#[test]
+	fn test_encode_indexable() {
+		// let patterns: [&[u8]; 2] = [
+		// 	&[ 69, 69, 69, 69 ],
+		// 	&[ 10, 1, 9, 2, 8, 3, 5, 4, 6 ],
+		// ];
+
+		let patterns = [&[ 1, 2, 3 ]];
+
+		let mut tb = AcTableBuilder::new(true);
+
+		for p in patterns {
+			tb.add_pattern(p);
+		}
+
+		let encoded = tb.build().encode_indexable();
+
+		println!("encoded len: {}", encoded.len());
+
+		let arr2d: Vec<&[u32]> = encoded.chunks(256).collect();
+
+		for (row_idx, row) in arr2d.iter().enumerate() {
+			for (elem_idx, elem) in row.iter().enumerate() {
+				if *elem != 0 {
+					println!("elem at row {row_idx}, column {elem_idx} is {elem}");
+				}
+			}
+		}
+	}
 
 	#[test]
 	fn test_ir_gen() {
 		let patterns: [&[u8]; 4] = [ &[ 45, 32, 23, 97 ], &[ 87, 34, 12 ], &[ 87, 45, 12 ], &[ 29, 45, 32, 23, 97 ] ];
 
-		let mut pb = PfacTableBuilder::new(true);
+		let mut pb = AcTableBuilder::new(true);
 
 		for p in patterns {
 			pb.add_pattern(p);
@@ -226,10 +314,4 @@ mod test {
 
 		assert_eq!(pb.pat_ir, expected_ir)
 	}
-}
-
-fn hash_suffix(suffix: &[u8]) -> u64 {
-	let mut hasher = DefaultHasher::new();
-	suffix.hash(&mut hasher);
-	hasher.finish()
 }

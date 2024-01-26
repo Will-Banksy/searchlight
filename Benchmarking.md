@@ -103,12 +103,20 @@ Only one pattern was used: `[ 0x7f, 0x45, 0x4c, 0x46 ]` (this will be changed)
 
 ## Searchlight Benchmark
 
-The CPU implementation of the searching algorithm is very slow and only serves as a fallback for when the GPU-accelerated version is not available, and is therefore not benchmarked.
+2 algorithms are implemented - Base Aho-Corasick (AC), on the CPU, and Parallel Failureless Aho-Corasick (PFAC) on the GPU (with Vulkan via vulkano). Unsurprisingly, the GPU-accelerated PFAC
+outperforms AC on the CPU. AC serves as a good fallback for when an appropriate Vulkan implementation is not available, or GPU-acceleration is opted out of, however.
 
 Each benchmark is run 20 times - 20 samples. The results in the [] are the confidence interval upper and lower bounds, and in the middle, the best guess as to the time taken for each sample, as reported by criterion.
 
 See benches/search_bench.rs for the benchmark file.
 
+Of note is that profiling the benchmark case for pfac_gpu showed that memory copies were where the CPU spent ~73% of its time - Optimising or circumventing these copies, if possible, will have
+significant performance impact.
+
 search/pfac_gpu
-- time:   [1.0068 s 1.0091 s 1.0115 s]
-- thrpt:  [1.9396 GiB/s 1.9442 GiB/s 1.9488 GiB/s]
+- time:   [578.90 ms 580.43 ms 581.98 ms]
+- thrpt:  [3.3711 GiB/s 3.3801 GiB/s 3.3890 GiB/s]
+
+search/ac_cpu
+- time:   [1.8327 s 1.8351 s 1.8375 s]
+- thrpt:  [1.0677 GiB/s 1.0691 GiB/s 1.0705 GiB/s]

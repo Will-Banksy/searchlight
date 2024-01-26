@@ -7,110 +7,162 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly buffer InputBuffer {
-	uint8_t in_data[];
+	uint in_data[];
 };
 
-layout(set = 0, binding = 1) readonly buffer PfacTableBuffer {
-	uint pfac_table[];
-};
+layout(set = 0, binding = 1, r32ui) readonly uniform uimage2D table;
 
 layout(set = 0, binding = 2) buffer OutputBuffer {
 	uint out_data[];
 };
 
-layout(set = 0, binding = 3) buffer OutStateBuffer {
-	uint out_state[1024];
-};
+layout(constant_id = 0) const uint max_pat_len = 0;
 
-layout(set = 0, binding = 4) buffer InStateBuffer {
-	uint in_state[1024];
-};
-
-layout(push_constant) uniform Metadata {
+layout(push_constant) uniform ExtraInfo {
 	uint64_t offset;
-} metadata;
+	uint input_len;
+} extra_info;
+
+shared uint input_cache[(64 / 4)/* + (max_pat_len / 4)*/];
 
 // ===
 
-#include "pfac_core.comp"
+const uint64_t FNV_OFFSET_BASIS = 0xcbf29ce484222325ul;
+const uint64_t FNV_PRIME = 0x100000001b3ul;
 
 // ===
 
-void process_in_states() {
-	uint64_t idx = 0;
-	uint in_data_len = in_data_len();
-
-	uint64_t id = 0;
-	uint state = 0;
-	uint64_t start_idx = 0;
-
-	while(load_state(id, state, start_idx)) {
-		// debugPrintfEXT("[pfac.comp/INFO]: Loaded state %u\n", state);
-		while(true) {
-			if(idx >= in_data_len) {
-				if(state != 0) {
-					save_state(id, state, start_idx);
-				}
-				break;
-			}
-
-			uint next_state = 0;
-			uint data_idx = read_in(idx);
-			if(pfac_table_lookup(state, data_idx, next_state)) {
-				state = next_state;
-				idx += 1;
-				id = match_id_hash_add(id, data_idx);
-				// id += 1;
-				// debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
-			} else if(pfac_table_is_terminator(state)) {
-				// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u (offset %u)\n", start_idx, idx - 1, metadata.offset);
-				write_match(id, uint(start_idx), uint(idx - 1 + metadata.offset));
-				break;
-			} else {
-				break;
-			}
+// Carry-less multiplication, simply discards the overflowing bits of the result
+// Hopefully this loop is unrolled
+uint64_t clmul(uint64_t x, uint64_t y) {
+	uint64_t accum = 0;
+	for(uint i = 0; i < 64; i++) {
+		if((x & 1ul) == 1) {
+			// In glsl, while the result of multiplication with overflow is undefined, addition with overflow simply yields the lower bits of the result
+			accum += y;
 		}
+		x >>= 1ul;
+		x ^= x & (1ul << 127);
+		y <<= 1ul;
+		y ^= y & 1ul;
 	}
+
+	return accum;
+}
+
+uint64_t match_id_hash_init() {
+	return FNV_OFFSET_BASIS;
+}
+
+uint64_t match_id_hash_add(uint64_t hash, uint new_value) {
+	return clmul((hash ^ uint64_t(new_value)), FNV_PRIME);
+}
+
+uint upper_of(uint64_t value) {
+	return uint((value >> 32) & 0x00000000ffffffff);
+}
+
+uint lower_of(uint64_t value) {
+	return uint(value & 0x00000000ffffffff);
+}
+
+// start_idx and end_idx are relative to the current in_data
+void write_match(uint64_t id, uint64_t start_idx, uint64_t end_idx) {
+	uint idx = atomicAdd(out_data[0], 1);
+	idx *= 6; // idx * data size in uints
+	idx += 1; // offset from length at start
+
+	uint out_data_len = 1024 * 1024;
+	// If we're overflowing, just don't write a match. Maybe return false, but there's much not point cause the shader can't really do anything about it
+	if((idx + 5) >= out_data_len) {
+		return;
+	}
+
+	// debugPrintfEXT("Writing match at idx: %u\n", idx);
+	out_data[idx] = lower_of(id);
+	out_data[idx + 1] = upper_of(id);
+	out_data[idx + 2] = lower_of(start_idx);
+	out_data[idx + 3] = upper_of(start_idx);
+	out_data[idx + 4] = lower_of(end_idx);
+	out_data[idx + 5] = upper_of(end_idx);
 }
 
 // ===
 
+// NOTE: I am actually implementing this as PFAC lmao maybe that's a good thing maybe it's not
+
 void main() {
-	// It's very unlikely that there are more than say one or two match candidates that were cross-border - So only get workgroup 0 to deal with it
-	if(gl_WorkGroupID.x == 0) {
-		process_in_states();
+	if(gl_GlobalInvocationID.x > extra_info.input_len) {
+		return;
 	}
 
-	uint64_t idx = uint64_t(gl_GlobalInvocationID.x);
-	uint in_data_len = in_data_len();
+	// TODO: Shared memory layout strategy to avoid bank collisions
+
+	if((gl_LocalInvocationID.x & 3) == 0) {
+		uint cache_idx = gl_LocalInvocationID.x / 4;
+		uint input_idx = gl_GlobalInvocationID.x / 4;
+
+		// Reads from the buffer should be coalesced
+		uint dat = in_data[input_idx];
+		input_cache[cache_idx] = dat;
+		// debugPrintfEXT("input_cache[%u] = in_data[%u] (%u)\n", base_cache_idx, input_idx, dat);
+	}
+
+	// Await caching of data
+	memoryBarrierShared();
+	// barrier();
+
+	// if(gl_LocalInvocationID.x != 11) {
+	// 	return;
+	// }
 
 	uint state = 0;
-	uint64_t start_idx = idx;
 	uint64_t id = match_id_hash_init();
 
-	while(true) {
-		if(idx >= in_data_len) {
-			if(state != 0) {
-				save_state(id, state, uint(start_idx + metadata.offset));
-				// debugPrintfEXT("[pfac.comp/INFO]: Saving state %u\n", state);
-			}
-			break;
-		}
+	for(uint i = 0; (i <= max_pat_len + 1) && ((i + gl_GlobalInvocationID.x) < extra_info.input_len); i++) {
+		// if(!(i <= max_pat_len + 1)) {
+		// 	debugPrintfEXT("Exit 0 (max_pat_len = %u)\n", max_pat_len);
+		// 	break;
+		// }
 
-		uint next_state = 0;
-		uint data_idx = read_in(idx);
-		if(pfac_table_lookup(state, data_idx, next_state)) {
-			state = next_state;
-			idx += 1;
-			id = match_id_hash_add(id, data_idx);
-			// id += 1;
-			// debugPrintfEXT("[pfac.comp/INFO]: Lookup successful, changing state to %u\n", state);
-		} else if(pfac_table_is_terminator(state)) {
-			// debugPrintfEXT("[pfac.comp/INFO]: Found match at idx %u..%u (offset %u)\n", start_idx, idx - 1, metadata.offset);
-			write_match(id, uint(start_idx + metadata.offset), uint(idx - 1 + metadata.offset));
+		// if(!(((i / 4) + input_idx) < extra_info.input_len / 4)) {
+		// 	debugPrintfEXT("Exit 1\n");
+		// 	break;
+		// }
+
+		uint idx = gl_LocalInvocationID.x + i;
+
+		uint cache_idx = idx / 4;
+		uint curr_val = (input_cache[cache_idx] >> ((idx & 3) * 8)) & 0xff;
+
+		// Lookup the next state in the STT
+		uvec4 texel = imageLoad(table, ivec2(curr_val, state));
+		uint next_state = texel.r;
+
+		// debugPrintfEXT("i = %u, val = %u\n", i, curr_val);
+
+		// debugPrintfEXT("Retrieved state %u by loading ivec2(%u, %u)\n", next_state, curr_val, state);
+		// debugPrintfEXT("input_cache[%u] = %u\n", cache_idx, input_cache[cache_idx]);
+		// debugPrintfEXT("in_data[%u] = %u\n", input_idx, in_data[input_idx]);
+		// if(curr_val >= 10) {
+		// 	debugPrintfEXT("curr_val %u @ input_cache[%u] >> (%u) - ID %u, i %u\n", curr_val, cache_idx, (idx & 3) * 8, gl_LocalInvocationID.x, i);
+		// }
+
+		if(next_state == 0xffffffff) {
+			// debugPrintfEXT("LocID %u / GlobID %u: wrote match at LocIdx %u / GlobIdx %u, offset = %u\n", gl_LocalInvocationID.x, gl_GlobalInvocationID.x, idx, gl_GlobalInvocationID.x + i, extra_info.offset);
+			uint64_t start_idx = uint64_t(gl_GlobalInvocationID.x + extra_info.offset);
+			uint64_t end_idx = uint64_t(gl_GlobalInvocationID.x + i + extra_info.offset - 1);
+			write_match(id, start_idx, end_idx);
 			break;
+		} else if(next_state != 0) {
+			state = next_state;
+			id = match_id_hash_add(id, curr_val);
+			// debugPrintfEXT("Moving on to state = %u, matched at idx = %u\n", next_state, idx);
 		} else {
+			// debugPrintfEXT("Fail @ val = %u, state = %u, idx = %u, cache_idx = %u\n", curr_val, state, idx, cache_idx);
 			break;
 		}
 	}
+
+	// debugPrintfEXT("Exit loop at state = %u\n", state);
 }

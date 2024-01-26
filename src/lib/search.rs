@@ -1,10 +1,10 @@
-pub mod pfac_common;
-pub mod pfac_cpu;
+pub mod search_common;
 #[cfg(feature = "gpu")]
 pub mod pfac_gpu;
+pub mod ac_cpu;
 pub mod pairing;
 
-use self::{pfac_cpu::PfacCpu, pfac_common::PfacTable};
+use self::{search_common::AcTable, ac_cpu::AcCpu};
 
 #[cfg(feature = "gpu")]
 use crate::lib::utils::logging::sl_warn;
@@ -37,13 +37,13 @@ impl Match {
 	}
 }
 
-pub struct PfacFuture {
+pub struct SearchFuture {
 	wait_fn: Box<dyn FnOnce() -> Result<Vec<Match>, Error>>
 }
 
-impl PfacFuture {
+impl SearchFuture {
 	pub fn new(wait_fn: impl FnOnce() -> Result<Vec<Match>, Error> + 'static) -> Self {
-		PfacFuture {
+		SearchFuture {
 			wait_fn: Box::new(wait_fn)
 		}
 	}
@@ -53,79 +53,61 @@ impl PfacFuture {
 	}
 }
 
-enum PfacImpl {
-	Cpu(PfacCpu),
-	#[cfg(feature = "gpu")]
-	Gpu(PfacGpu)
+pub trait Searcher {
+	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error>;
+	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error>;
 }
 
-pub struct Pfac {
-	pfac_impl: PfacImpl
+pub struct Search {
+	search_impl: Box<dyn Searcher>
 }
 
-impl Pfac {
-	/// Initialises one of the two available implementations of the PFAC dictionary searching algorithm:
-	/// either the GPU-accelerated PFAC algorithm with Vulkan through vulkano or PFAC on the CPU,
-	/// using a thread pool.
+impl Search {
+	/// Automatically selects
 	///
-	/// The GPU-accelerated implementation will be chosen by default if available
-	pub fn new(table: PfacTable, prefer_cpu: bool) -> Self {
+	/// The GPU-accelerated PFAC implementation will be chosen by default if available
+	pub fn new(table: AcTable, prefer_cpu: bool) -> Self {
 		if !prefer_cpu {
 			#[cfg(feature = "gpu")]
 			{
 				match PfacGpu::new(table.clone()) {
 					Ok(pfac_gpu) => {
-						return Pfac {
-							pfac_impl: PfacImpl::Gpu(pfac_gpu)
+						return Search {
+							search_impl: Box::new(pfac_gpu)
 						};
 					}
 					Err(e) => {
-						sl_warn!("Pfac", format!("Vulkan initialisation failed, falling back to CPU impl of PFAC {:?}", e));
+						sl_warn!("Search", format!("Vulkan initialisation failed, falling back to CPU impl of Aho Corasick {:?}", e));
 					}
 				}
 			}
 		}
 
-		return Pfac {
-			pfac_impl: PfacImpl::Cpu(PfacCpu::new(table))
+		return Search {
+			search_impl: Box::new(AcCpu::new(table))
 		};
 	}
+}
 
-	/// Searches the provided buffer through the used PFAC implementation
-	///
-	/// This should normally be called on ordered contiguous buffers, one after the other, as it tracks matching progress
-	/// - to discard progress and correctly match on a non-contiguous or out of order buffer, call `discard_progress` between
-	/// calling this method
-	pub fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<PfacFuture, Error> {
-		match &mut self.pfac_impl {
-			PfacImpl::Cpu(pfac_cpu) => {
-				Ok(pfac_cpu.search_next(data, data_offset))
-			}
-			#[cfg(feature = "gpu")]
-			PfacImpl::Gpu(pfac_gpu) => {
-				match pfac_gpu.search_next(data, data_offset) {
-					Ok(results) => Ok(results),
-					Err(e) => {
-						Err(Error::from(e))
-					}
-				}
+impl Searcher for Search {
+	/// Searches the provided buffer through the used searching implementation
+	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
+		match self.search_impl.search_next(data, data_offset) {
+			Ok(results) => Ok(results),
+			Err(e) => {
+				Err(Error::from(e))
 			}
 		}
 	}
 
-	pub fn discard_progress(&mut self) -> Result<(), Error> {
-		match &mut self.pfac_impl {
-			PfacImpl::Cpu(pfac_cpu) => {
-				Ok(pfac_cpu.discard_progress())
-			}
-			#[cfg(feature = "gpu")]
-			PfacImpl::Gpu(pfac_gpu) => {
-				match pfac_gpu.discard_progress() {
-					Ok(_) => Ok(()),
-					Err(e) => {
-						Err(Error::from(e))
-					}
-				}
+	/// Searches the provided buffer through the used searching implementation
+	///
+	/// This should normally be called on ordered contiguous buffers, one after the other, but does not track progress
+	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
+		match self.search_impl.search(data, data_offset) {
+			Ok(results) => Ok(results),
+			Err(e) => {
+				Err(Error::from(e))
 			}
 		}
 	}

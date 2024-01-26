@@ -1,2 +1,2 @@
-pub mod chunk_iter;
+pub mod iter;
 pub mod logging;
