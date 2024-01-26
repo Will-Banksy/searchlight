@@ -1,8 +1,16 @@
+
+#[cfg(feature = "gpu")]
 use searchlight::lib::{search::{search_common::AcTableBuilder, pfac_gpu::PfacGpu, SearchFuture, Searcher}, utils::iter::ToGappedWindows};
 
 const BENCH_FILE: &'static str = "test_data/ubnist1.gen3.raw";
 const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
 
+#[cfg(not(feature = "gpu"))]
+fn main() {
+	println!("GPU feature necessary for this example is not enabled");
+}
+
+#[cfg(feature = "gpu")]
 fn main() {
 	let search_buf = std::fs::read(BENCH_FILE).unwrap();
 	let patterns = SEARCH_PATTERNS;
