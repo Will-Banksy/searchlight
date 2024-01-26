@@ -1,4 +1,4 @@
-use std::{fs::File, hint::black_box};
+use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, fs::File, hint::black_box};
 
 use criterion::{criterion_group, criterion_main, Criterion, Bencher, Throughput};
 use searchlight::lib::{search::{search_common::AcTableBuilder, SearchFuture, ac_cpu::AcCpu, pfac_gpu::PfacGpu, Searcher}, utils::iter::ToGappedWindows};
@@ -58,6 +58,7 @@ fn pfac_gpu(b: &mut Bencher) {
 		let mut result_fut: Option<SearchFuture> = None;
 
 		for (i, window) in search_buf.to_gapped_windows(1024 * 1024, 1024 * 1024 - 4).enumerate() {
+			unsafe { _mm_prefetch::<_MM_HINT_T0>(window.as_ptr() as *const i8) };
 			if let Some(prev_result) = result_fut.take() {
 				matches.append(&mut prev_result.wait().unwrap());
 			}

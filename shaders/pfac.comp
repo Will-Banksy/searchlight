@@ -23,7 +23,7 @@ layout(push_constant) uniform ExtraInfo {
 	uint input_len;
 } extra_info;
 
-shared uint input_cache[(64 / 4)/* + (max_pat_len / 4)*/];
+shared uint input_cache[64 / 4];
 
 // ===
 
@@ -78,7 +78,6 @@ void write_match(uint64_t id, uint64_t start_idx, uint64_t end_idx) {
 		return;
 	}
 
-	// debugPrintfEXT("Writing match at idx: %u\n", idx);
 	out_data[idx] = lower_of(id);
 	out_data[idx + 1] = upper_of(id);
 	out_data[idx + 2] = lower_of(start_idx);
@@ -88,8 +87,6 @@ void write_match(uint64_t id, uint64_t start_idx, uint64_t end_idx) {
 }
 
 // ===
-
-// NOTE: I am actually implementing this as PFAC lmao maybe that's a good thing maybe it's not
 
 void main() {
 	if(gl_GlobalInvocationID.x > extra_info.input_len) {
@@ -110,26 +107,11 @@ void main() {
 
 	// Await caching of data
 	memoryBarrierShared();
-	// barrier();
-
-	// if(gl_LocalInvocationID.x != 11) {
-	// 	return;
-	// }
 
 	uint state = 0;
 	uint64_t id = match_id_hash_init();
 
 	for(uint i = 0; (i <= max_pat_len + 1) && ((i + gl_GlobalInvocationID.x) < extra_info.input_len); i++) {
-		// if(!(i <= max_pat_len + 1)) {
-		// 	debugPrintfEXT("Exit 0 (max_pat_len = %u)\n", max_pat_len);
-		// 	break;
-		// }
-
-		// if(!(((i / 4) + input_idx) < extra_info.input_len / 4)) {
-		// 	debugPrintfEXT("Exit 1\n");
-		// 	break;
-		// }
-
 		uint idx = gl_LocalInvocationID.x + i;
 
 		uint cache_idx = idx / 4;
@@ -138,15 +120,6 @@ void main() {
 		// Lookup the next state in the STT
 		uvec4 texel = imageLoad(table, ivec2(curr_val, state));
 		uint next_state = texel.r;
-
-		// debugPrintfEXT("i = %u, val = %u\n", i, curr_val);
-
-		// debugPrintfEXT("Retrieved state %u by loading ivec2(%u, %u)\n", next_state, curr_val, state);
-		// debugPrintfEXT("input_cache[%u] = %u\n", cache_idx, input_cache[cache_idx]);
-		// debugPrintfEXT("in_data[%u] = %u\n", input_idx, in_data[input_idx]);
-		// if(curr_val >= 10) {
-		// 	debugPrintfEXT("curr_val %u @ input_cache[%u] >> (%u) - ID %u, i %u\n", curr_val, cache_idx, (idx & 3) * 8, gl_LocalInvocationID.x, i);
-		// }
 
 		if(next_state == 0xffffffff) {
 			// debugPrintfEXT("LocID %u / GlobID %u: wrote match at LocIdx %u / GlobIdx %u, offset = %u\n", gl_LocalInvocationID.x, gl_GlobalInvocationID.x, idx, gl_GlobalInvocationID.x + i, extra_info.offset);
@@ -163,6 +136,4 @@ void main() {
 			break;
 		}
 	}
-
-	// debugPrintfEXT("Exit loop at state = %u\n", state);
 }

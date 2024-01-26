@@ -12,6 +12,7 @@ pub const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
 pub const DEFAULT_ALIGNMENT: usize = 4096;
 
 // TODO: What if, for example, read_next simply queued a read and and the backend may give the function to another thread to call when the read is finished
+//       This could work through Futures or similar
 
 // TODO: After the changes to IoManager, benchmarking shows performance has regressed. This may be partially due to the performance impact of the hashmap
 //     Investigate, and perhaps amortise the cost of calculating string hashes by A. using a faster hasher such as "ahash" or B. Calculate the hashes once,

@@ -20,6 +20,7 @@
 // - https://gpuopen.com/wp-content/uploads/2016/03/VulkanFastPaths.pdf
 // - https://codereview.stackexchange.com/questions/259775/user-implementation-of-memcpy-where-to-optimize-further
 // - https://www.embedded.com/optimizing-memcpy-improves-speed/
+// - https://forums.raspberrypi.com/viewtopic.php?t=319315
 
 mod pfac_shaders {
 	pub mod ac {
@@ -343,7 +344,7 @@ impl Searcher for PfacGpu {
 		let input_bytes_written = {
 			let mut input_subbuffer_host_wlock = input_subbuffer_host.write().unwrap();
 
-			input_subbuffer_host_wlock.deref_mut().write(data).unwrap()//.write_vectored(&data.chunks(512).map(|c| IoSlice::new(c)).collect::<Vec<IoSlice>>()).unwrap()
+			input_subbuffer_host_wlock.deref_mut().write(data).unwrap()
 		};
 
 		let shader_pc = pfac_shaders::ac::ExtraInfo {

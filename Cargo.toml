@@ -11,7 +11,6 @@ gpu = [ "dep:vulkano", "dep:vulkano-shaders" ]
 
 [dependencies]
 memmap = "0.7.0"
-scoped-thread-pool = "1.0.4"
 vulkano = { version = "0.34.0", optional = true }
 vulkano-shaders = { version = "0.34.0", optional = true }
 colored = "2.1.0"
