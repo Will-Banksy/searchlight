@@ -88,7 +88,6 @@ impl AcTableBuilder {
 		}
 
 		self.max_pat_len = self.max_pat_len.max(pattern.len() as u32);
-		println!("Pattern {:?} len = {}", pattern, pattern.len());
 	}
 
 	pub fn build(self) -> AcTable {

@@ -23,7 +23,7 @@ layout(push_constant) uniform ExtraInfo {
 	uint input_len;
 } extra_info;
 
-shared uint input_cache[64 / 4];
+// shared uint input_cache[64 / 4];
 
 // ===
 
@@ -93,29 +93,44 @@ void main() {
 		return;
 	}
 
-	// TODO: Shared memory layout strategy to avoid bank collisions
+	// NOTE: Using shared memory has not been proven particularly useful for performance, and maybe even slows down performance. The bottleneck seems to be the memcpys, but I'm not sure why.
+	//       Anyway, if I was to revisit using shared memory to cache input data, I will need to think about bank collisions and make sure to fix the case of the shader reading past the
+	//       end of the shared memory in the case of a match at the end of a thread group
 
-	if((gl_LocalInvocationID.x & 3) == 0) {
-		uint cache_idx = gl_LocalInvocationID.x / 4;
-		uint input_idx = gl_GlobalInvocationID.x / 4;
+	// if((gl_LocalInvocationID.x & 3) == 0) {
+	// 	uint cache_idx = gl_LocalInvocationID.x / 4;
+	// 	uint input_idx = gl_GlobalInvocationID.x / 4;
 
-		// Reads from the buffer should be coalesced
-		uint dat = in_data[input_idx];
-		input_cache[cache_idx] = dat;
-		// debugPrintfEXT("input_cache[%u] = in_data[%u] (%u)\n", base_cache_idx, input_idx, dat);
-	}
+	// 	// Reads from the buffer should be coalesced
+	// 	uint dat = in_data[input_idx];
+	// 	input_cache[cache_idx] = dat;
+	// 	// debugPrintfEXT("input_cache[%u] = in_data[%u] (%u)\n", base_cache_idx, input_idx, dat);
+	// }
 
 	// Await caching of data
-	memoryBarrierShared();
+	// memoryBarrierShared();
+
+	// if((uint64_t(gl_GlobalInvocationID.x) + extra_info.offset) == 724531255ul) {
+	// 	debugPrintfEXT("(724531255ul) LocID %u\n", gl_LocalInvocationID.x);
+	// 	for(uint i = 0; i <= max_pat_len; i++) {
+	// 		uint idx = gl_LocalInvocationID.x + i;
+	// 		uint cache_idx = idx / 4;
+	// 		uint curr_val = (input_cache[cache_idx] >> ((idx & 3) * 8)) & 0xff;
+	// 		debugPrintfEXT("\t[%u]: %u", i, curr_val);
+	// 	}
+	// }
 
 	uint state = 0;
 	uint64_t id = match_id_hash_init();
 
 	for(uint i = 0; (i <= max_pat_len + 1) && ((i + gl_GlobalInvocationID.x) < extra_info.input_len); i++) {
 		uint idx = gl_LocalInvocationID.x + i;
+		uint gidx = gl_GlobalInvocationID.x + i;
 
-		uint cache_idx = idx / 4;
-		uint curr_val = (input_cache[cache_idx] >> ((idx & 3) * 8)) & 0xff;
+		// uint cache_idx = idx / 4;
+		uint input_idx = gidx / 4;
+		// uint curr_val = (input_cache[cache_idx] >> ((idx & 3) * 8)) & 0xff;
+		uint curr_val = (in_data[input_idx] >> ((gidx & 3) * 8)) & 0xff;
 
 		// Lookup the next state in the STT
 		uvec4 texel = imageLoad(table, ivec2(curr_val, state));

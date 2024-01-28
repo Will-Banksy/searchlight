@@ -344,6 +344,10 @@ impl Searcher for PfacGpu {
 		let input_bytes_written = {
 			let mut input_subbuffer_host_wlock = input_subbuffer_host.write().unwrap();
 
+			// let write_len = (INPUT_BUFFER_SIZE as usize).min(data.len());
+			// input_subbuffer_host_wlock.deref_mut()[..write_len].copy_from_slice(&data[..write_len]);
+			// write_len
+
 			input_subbuffer_host_wlock.deref_mut().write(data).unwrap()
 		};
 

@@ -37,7 +37,6 @@ fn ac_cpu(b: &mut Bencher) {
 	}, |mut ac: AcCpu| {
 		let matches = ac.search_next(&search_buf, 0).unwrap().wait().unwrap();
 		black_box(matches);
-		// println!("\nNo. matches: {}", matches.len())
 	}, criterion::BatchSize::LargeInput);
 }
 
@@ -57,15 +56,25 @@ fn pfac_gpu(b: &mut Bencher) {
 		let mut matches = Vec::new();
 		let mut result_fut: Option<SearchFuture> = None;
 
-		for (i, window) in search_buf.to_gapped_windows(1024 * 1024, 1024 * 1024 - 4).enumerate() {
+		for (i, window) in search_buf.gapped_windows(1024 * 1024, 1024 * 1024 - 4).enumerate() {
 			unsafe { _mm_prefetch::<_MM_HINT_T0>(window.as_ptr() as *const i8) };
 			if let Some(prev_result) = result_fut.take() {
 				matches.append(&mut prev_result.wait().unwrap());
 			}
-			let r = ac.search_next(window, (i * 1024 * 1024 - 4) as u64).unwrap();
+			let r = {
+				if i == 0 {
+					ac.search(window, 0).unwrap()
+				} else {
+					ac.search_next(window, (i * 1024 * 1024 - 4) as u64).unwrap()
+				}
+			};
 			result_fut = Some(r);
 		}
-		println!("\nNo. matches: {}", matches.len());
+
+		if let Some(result) = result_fut.take() {
+			matches.append(&mut result.wait().unwrap());
+		}
+
 		black_box(matches);
 	}, criterion::BatchSize::LargeInput);
 }

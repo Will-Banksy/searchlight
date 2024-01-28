@@ -29,7 +29,7 @@ fn main() {
 		let mut matches = Vec::new();
 		let mut result_fut: Option<SearchFuture> = None;
 
-		for (i, window) in search_buf.to_gapped_windows(1024 * 1024, 1024 * 1024 - 4).enumerate() {
+		for (i, window) in search_buf.gapped_windows(1024 * 1024, 1024 * 1024 - 4).enumerate() {
 			if let Some(prev_result) = result_fut.take() {
 				matches.append(&mut prev_result.wait().unwrap());
 			}

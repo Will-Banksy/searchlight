@@ -37,11 +37,11 @@ impl<I> Iterator for ChunksIterExact<I> where I: Iterator {
 }
 
 pub trait ToGappedWindows<'a, T> {
-	fn to_gapped_windows(&'a self, window_size: usize, window_gap: usize) -> GappedWindows<'a, T>;
+	fn gapped_windows(&'a self, window_size: usize, window_gap: usize) -> GappedWindows<'a, T>;
 }
 
 impl<'a, T> ToGappedWindows<'a, T> for [T] {
-	fn to_gapped_windows(&'a self, window_size: usize, window_gap: usize) -> GappedWindows<'a, T> {
+	fn gapped_windows(&'a self, window_size: usize, window_gap: usize) -> GappedWindows<'a, T> {
 		GappedWindows {
 			inner: Some(self),
 			window_size,
@@ -78,7 +78,7 @@ mod test {
 			11, 12, 13
 		];
 
-		let result: Vec<&[i32]> = array.to_gapped_windows(7, 5).collect();
+		let result: Vec<&[i32]> = array.gapped_windows(7, 5).collect();
 
 		let expected: &[&[i32]] = &[ &[1, 2, 3, 4, 5, 6, 7], &[6, 7, 8, 9, 10, 11, 12], &[11, 12, 13] ];
 
