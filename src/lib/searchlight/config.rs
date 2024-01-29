@@ -28,7 +28,7 @@ pub struct FileType {
 	pub requires_footer: bool
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub enum PairingStrategy {
 	#[serde(rename = "next")]
 	PairNext,

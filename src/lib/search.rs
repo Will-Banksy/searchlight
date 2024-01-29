@@ -16,7 +16,7 @@ use pfac_gpu::PfacGpu;
 
 /// A result from searching, includes a start and end, and an id generated from the FNV-1a hash of the bytes of the match.
 /// Using the FNV-1a hashing algorithm as it is very simple, with good characteristics, and is fast
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Match {
 	/// `id` should be produced by using the `match_id_hash_init` and `match_id_hash_add` functions on the values in a pattern
 	pub id: u64,
@@ -160,9 +160,15 @@ fn clmul(mut x: u64, mut y: u64) -> u64 {
 mod test {
     use std::{collections::BTreeMap, fs};
 
-    use crate::{lib::{search::{clmul, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Match, SearchFuture, FNV_OFFSET_BASIS, FNV_PRIME}, utils::iter::ToGappedWindows}, sl_error};
+	use crate::lib::utils::iter::ToGappedWindows;
 
-    use super::{ac_cpu::AcCpu, Searcher};
+	use super::{clmul, FNV_OFFSET_BASIS, FNV_PRIME};
+
+	#[cfg(feature = "big_tests")]
+	use crate::sl_error;
+
+	#[cfg(feature = "big_tests")]
+	use super::{ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Searcher, SearchFuture, Match};
 
 	const TEST_FILE: &'static str = "test_data/ubnist1.gen3.raw";
 	const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
@@ -173,6 +179,7 @@ mod test {
 	}
 
 	/// Runs the search impl across the test data in 1024*1024 byte windows, returning a map of window index to matches found in that window
+	#[cfg(feature = "big_tests")]
 	fn match_windowed(mut search_impl: Box<dyn Searcher>, test_data: &[u8]) -> BTreeMap<usize, Vec<Match>> {
 		let mut matches = BTreeMap::new();
 
