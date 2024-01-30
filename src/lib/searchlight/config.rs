@@ -14,7 +14,7 @@ pub struct SearchlightConfig {
 	pub file_types: Vec<FileType>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct FileType {
 	pub headers: Vec<Vec<u8>>,
 	#[serde(default)]

@@ -1,13 +1,21 @@
+use core::fmt;
 use std::collections::HashMap;
 
 use crate::{lib::searchlight::config::{FileType, PairingStrategy, SearchlightConfig}, sl_warn};
 
 use super::{Match, match_id_hash_slice};
 
+#[derive(PartialEq)]
 pub struct MatchPair<'a> {
 	file_type: &'a FileType,
 	start_idx: u64,
 	end_idx: u64
+}
+
+impl fmt::Debug for MatchPair<'_> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("MatchPair")/*.field("file_type", &self.file_type)*/.field("start_idx", &self.start_idx).field("end_idx", &self.end_idx).finish()
+	}
 }
 
 impl<'a> MatchPair<'a> {
@@ -78,6 +86,8 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 /// # Panics
 /// Panics if a file type has both no footers and no max length (which would be a config validation error),
 /// or if id_ftype_map is missing any match ids that are present in `matches`.
+
+// TODO: Could we perhaps prioritise pairing Matches that occur on 512-byte multiples? Should we? Cause that might miss or cause errors with pairing embedded files...
 pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: HashMap<u64, (usize, &'a FileType, MatchPart)>, end_of_matches: bool) -> Vec<MatchPair<'a>> {
 	let mut complete_matches = Vec::new();
 	// Map from FileType idx to list of Match idxs that are of that filetype and use PairingStrategy::PairNext
@@ -191,7 +201,149 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: HashMap<u64, (usize, &'a
 	//       For the PairLast ones, look for the last footer before another header to pair with any headers
 	//       Also maybe get rid of some of the confusing logic in the footer handling code, to replace with hopefully simpler code here - some code should run when it's not the end of the matches yet, some should not
 
-	// TODO: Remove all matches that were marked for removal, in reverse order to not fuck up the indices
+	matches_to_remove.sort();
+	matches_to_remove.dedup();
+
+	for &rem_idx in matches_to_remove.iter().rev() {
+		matches.remove(rem_idx);
+	}
 
 	complete_matches
+}
+
+#[cfg(test)]
+mod test {
+    use crate::lib::{search::{match_id_hash_slice, pairing::MatchPair, Match}, searchlight::config::{FileType, PairingStrategy, SearchlightConfig}};
+
+    use super::{pair, preprocess_config};
+
+	#[test]
+	fn test_pairing() {
+		let match_ids: &[u64] = &[
+			match_id_hash_slice("ft0_header".as_bytes()),
+			match_id_hash_slice("ft0_footer".as_bytes()),
+			match_id_hash_slice("ft1_header".as_bytes()),
+			match_id_hash_slice("ft1_footer".as_bytes()),
+		];
+
+		let mut match_list = vec![
+			// Case - Simple
+			Match {
+				id: match_ids[0],
+				start_idx: 0,
+				end_idx: 3
+			},
+			Match {
+				id: match_ids[1],
+				start_idx: 6,
+				end_idx: 7
+			},
+
+			// Case - Interleaved PairNext matches of different file types
+			Match {
+				id: match_ids[0],
+				start_idx: 10,
+				end_idx: 15
+			},
+			Match {
+				id: match_ids[2],
+				start_idx: 12,
+				end_idx: 16
+			},
+			Match {
+				id: match_ids[1],
+				start_idx: 18,
+				end_idx: 20
+			},
+			Match {
+				id: match_ids[3],
+				start_idx: 19,
+				end_idx: 23
+			},
+
+			// Case - Interleaved PairNext matches of the same file types
+			Match {
+				id: match_ids[0],
+				start_idx: 27,
+				end_idx: 30
+			},
+			Match {
+				id: match_ids[0],
+				start_idx: 30,
+				end_idx: 35
+			},
+			Match {
+				id: match_ids[1],
+				start_idx: 37,
+				end_idx: 39
+			},
+			Match {
+				id: match_ids[1],
+				start_idx: 40,
+				end_idx: 42
+			},
+		];
+
+		let config = SearchlightConfig {
+			file_types: vec![
+				FileType {
+					headers: vec![ "ft0_header".bytes().collect() ],
+					footers: vec![ "ft0_footer".bytes().collect() ],
+					extension: Some("ft0".to_string()),
+					pairing: PairingStrategy::PairNext,
+					max_len: Some(10),
+					requires_footer: true
+				},
+				FileType {
+					headers: vec![ "ft1_header".bytes().collect() ],
+					footers: vec![ "ft1_footer".bytes().collect() ],
+					extension: Some("ft1".to_string()),
+					pairing: PairingStrategy::PairNext,
+					max_len: Some(10),
+					requires_footer: true
+				}
+			],
+			..Default::default()
+		};
+
+		let expected_pairs = [
+			MatchPair {
+				file_type: &config.file_types[0],
+				start_idx: 0,
+				end_idx: 7,
+			},
+			MatchPair {
+				file_type: &config.file_types[0],
+				start_idx: 10,
+				end_idx: 20,
+			},
+			MatchPair {
+				file_type: &config.file_types[1],
+				start_idx: 12,
+				end_idx: 23,
+			},
+			MatchPair {
+				file_type: &config.file_types[0],
+				start_idx: 30,
+				end_idx: 39,
+			},
+			MatchPair {
+				file_type: &config.file_types[0],
+				start_idx: 27,
+				end_idx: 42,
+			},
+		];
+
+		let id_ftype_map = preprocess_config(&config);
+
+		println!("matches (before): {:?}\n", match_list);
+
+		let match_pairs = pair(&mut match_list, id_ftype_map, true);
+
+		println!("matches (after): {:?}\n", match_list);
+		println!("match pairs: {:?}", match_pairs);
+
+		assert_eq!(match_pairs, expected_pairs);
+		assert!(match_list.is_empty());
+	}
 }
