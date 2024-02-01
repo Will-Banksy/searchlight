@@ -37,7 +37,7 @@ pub enum PairingStrategy {
 }
 
 impl SearchlightConfig {
-	pub fn validate(&self) -> Result<(), Error> {
+	pub fn validate(&self) -> Result<(), Error> { // TODO: Check for hash collisions. The id_ftype_map does, but it should ideally be caught earlier. Also, I could build the id_ftype_map here and store it in the config maybe
 		for ft in &self.file_types {
 			if !ft.has_footer() && ft.max_len.is_none() {
 				return Err(Error::ConfigValidationError(format!("File type {} has no footers or a configured max length - Configure at least one footer or a max_len", ft.extension.clone().unwrap_or("<no extension>".to_string()))));
