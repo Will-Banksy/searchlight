@@ -1,7 +1,9 @@
 use core::fmt;
 use std::collections::HashMap;
 
-use crate::{searchlight::config::{FileType, PairingStrategy, SearchlightConfig}, sl_warn};
+use log::warn;
+
+use crate::searchlight::config::{FileType, PairingStrategy, SearchlightConfig};
 
 use super::{Match, match_id_hash_slice};
 
@@ -51,11 +53,10 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 		for header in &config.file_types[i].headers {
 			let id = match_id_hash_slice(&header);
 			if !config.quiet && id_ftype_map.contains_key(&id) {
-				sl_warn!(
-					"pairing",
-					format!("Collision detected, matches of this byte sequence may be misattributed (header: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
-						header, config.file_types[i].extension.clone().unwrap_or("<no extension>".to_string())
-					)
+				warn!(
+					"Collision detected, matches of this byte sequence may be misattributed (header: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
+					header,
+					config.file_types[i].extension.clone().unwrap_or("<no extension>".to_string())
 				);
 			}
 			id_ftype_map.insert(id, (i, &config.file_types[i], MatchPart::Header));
@@ -63,11 +64,10 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 		for footer in &config.file_types[i].footers {
 			let id = match_id_hash_slice(&footer);
 			if !config.quiet && id_ftype_map.contains_key(&id) {
-				sl_warn!(
-					"pairing",
-					format!("Collision detected, matches of this byte sequence may be misattributed (footer: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
-						footer, config.file_types[i].extension.clone().unwrap_or("<no extension>".to_string())
-					)
+				warn!(
+					"Collision detected, matches of this byte sequence may be misattributed (footer: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
+					footer,
+					config.file_types[i].extension.clone().unwrap_or("<no extension>".to_string())
 				);
 			}
 			id_ftype_map.insert(id, (i, &config.file_types[i], MatchPart::Footer));

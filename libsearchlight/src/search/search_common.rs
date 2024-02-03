@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, collections::{HashMap, hash_map::DefaultHasher}};
 
-use crate::sl_info;
+use log::info;
 
 use self::ir::{NodeIR, ConnectionIR};
 
@@ -99,7 +99,7 @@ impl AcTableBuilder {
 			})
 			.collect();
 
-		sl_info!("search_common", format!("AC Table: {:?}", table));
+		info!("AC Table: {:?}", table);
 
 		AcTable { table, max_pat_len: self.max_pat_len }
 	}

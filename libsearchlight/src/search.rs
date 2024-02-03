@@ -6,11 +6,9 @@ pub mod pairing;
 
 use self::{search_common::AcTable, ac_cpu::AcCpu};
 
-#[cfg(feature = "gpu")]
-use crate::utils::logging::sl_warn;
-
 use super::error::Error;
 
+use log::warn;
 #[cfg(feature = "gpu")]
 use pfac_gpu::PfacGpu;
 
@@ -77,7 +75,7 @@ impl Search {
 						};
 					}
 					Err(e) => {
-						sl_warn!("Search", format!("Vulkan initialisation failed, falling back to CPU impl of Aho Corasick {:?}", e));
+						warn!("Vulkan initialisation failed, falling back to CPU impl of Aho Corasick {:?}", e);
 					}
 				}
 			}

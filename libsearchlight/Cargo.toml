@@ -16,6 +16,7 @@ vulkano = { version = "0.34.0", optional = true }
 vulkano-shaders = { version = "0.34.0", optional = true }
 colored = "2.1.0"
 serde = { version = "1.0.195", features = [ "derive" ] }
+log = "0.4.20"
 
 # Conditionally depend on libc on linux platforms
 [target.'cfg(target_os = "linux")'.dependencies]

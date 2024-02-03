@@ -35,9 +35,10 @@ mod pfac_shaders {
 
 use std::{sync::Arc, ops::DerefMut, time::Duration, io::Write};
 
+use log::info;
 use vulkano::{instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Features, Device, DeviceCreateInfo, QueueCreateInfo, Queue}, VulkanLibrary, memory::{allocator::{StandardMemoryAllocator, MemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocatePreference, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::{PipelineDescriptorSetLayoutCreateInfo, PushConstantRange, PipelineLayoutCreateFlags}, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet, layout::{DescriptorSetLayoutCreateInfo, DescriptorSetLayoutBinding, DescriptorType}}, image::{Image, ImageCreateInfo, ImageType, ImageUsage, view::ImageView}, format::Format, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo, CopyBufferInfo}, sync::{self, GpuFuture}, shader::ShaderStage};
 
-use crate::{{error::{Error, VulkanError}, utils::iter::ToChunksExact}, sl_info};
+use crate::{error::{Error, VulkanError}, utils::iter::ToChunksExact};
 
 use super::{search_common::AcTable, SearchFuture, Match, Searcher};
 
@@ -72,7 +73,7 @@ impl PfacGpu {
 
 		let (vkphys, vkqfidx_comp) = Self::select_device(&vkins, &req_device_extensions).ok_or(VulkanError::NoVulkanImplementations)?;
 
-		sl_info!("pfac_gpu", format!("Using physical vulkan device: {} (type {:?})", vkphys.properties().device_name, vkphys.properties().device_type));
+		info!("Using physical vulkan device: {} (type {:?})", vkphys.properties().device_name, vkphys.properties().device_type);
 
 		let (vkdev, mut vkqueues) = Device::new(Arc::clone(&vkphys), DeviceCreateInfo {
 			queue_create_infos: vec![
