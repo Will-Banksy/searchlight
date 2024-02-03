@@ -1,3 +1,6 @@
+use std::fmt::Write;
+
+use colored::Colorize;
 use serde::Deserialize;
 
 use crate::lib::error::Error;
@@ -12,6 +15,8 @@ pub struct SearchlightConfig {
 	pub quiet: bool,
 	#[serde(rename = "file_type")]
 	pub file_types: Vec<FileType>,
+	#[serde(skip)]
+	pub log: Option<String>,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -63,9 +68,39 @@ impl Default for SearchlightConfig {
 			only_cpu: false,
 			verbose: false,
 			quiet: false,
-			file_types: Vec::new()
+			file_types: Vec::new(),
+			log: None,
 		}
     }
+}
+
+// TODO: Just use the log crate in the lib, env_logger in the bin, or something. Don't try make a fucking logging framework as well as a file carving tool, IO framework, and the other 1e20 things I'm trying to do
+// TODO: Also just read the CLI applications in rust book
+
+impl SearchlightConfig {
+	pub fn log_info(&mut self, source: impl AsRef<str>, msg: impl AsRef<str>) {
+		if let Some(ref mut log) = self.log {
+			log.write_str(&format!("[{}/INFO]: {}\n", source.as_ref(), msg.as_ref())).unwrap();
+		} else {
+			eprintln!("[{}/{}]: {}", source.as_ref(), "INFO".blue(), msg.as_ref());
+		}
+	}
+
+	pub fn log_warn(&mut self, source: impl AsRef<str>, msg: impl AsRef<str>) {
+		if let Some(ref mut log) = self.log {
+			log.write_str(&format!("[{}/WARN]: {}\n", source.as_ref(), msg.as_ref())).unwrap();
+		} else {
+			eprintln!("[{}/{}]: {}", source.as_ref(), "WARN".yellow(), msg.as_ref());
+		}
+	}
+
+	pub fn log_error(&mut self, source: impl AsRef<str>, msg: impl AsRef<str>) {
+		if let Some(ref mut log) = self.log {
+			log.write_str(&format!("[{}/ERROR]: {}\n", source.as_ref(), msg.as_ref())).unwrap();
+		} else {
+			eprintln!("[{}/{}]: {}", source.as_ref(), "ERROR".yellow(), msg.as_ref());
+		}
+	}
 }
 
 impl Default for PairingStrategy {

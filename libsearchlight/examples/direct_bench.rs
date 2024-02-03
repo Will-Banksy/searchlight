@@ -1,27 +1,19 @@
 use std::time::Instant;
 
-#[cfg(target_os = "linux")]
-use searchlight::lib::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, io_uring::{self, DEFAULT_URING_READ_SIZE}, AccessPattern};
+use libsearchlight::lib::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, direct, AccessPattern};
 
 const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 
-#[cfg(not(target_os = "linux"))]
-fn main() {
-	eprintln!("This example is only supported on Linux")
-}
-
-/// This example is just a io_uring backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10
-#[cfg(target_os = "linux")]
+/// This example is just a filebuf backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10
 fn main() {
 	let mut ioman = IoManager::new();
 
 	let path = BENCH_FILE;
 	let block_size = DEFAULT_BLOCK_SIZE;
-	let read_len = DEFAULT_URING_READ_SIZE as u64;
 
 	ioman.open_with(path, true, false, {
 		GenIoBackend::Seq(
-			io_uring::IoUring::new(path, true, false, AccessPattern::Seq, block_size, read_len).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			direct::IoDirect::new(path, true, false, AccessPattern::Seq, block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
 		)
 	});
 

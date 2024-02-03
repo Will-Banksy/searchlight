@@ -1,7 +1,7 @@
 use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, fs::File, hint::black_box};
 
 use criterion::{criterion_group, criterion_main, Criterion, Bencher, Throughput};
-use searchlight::lib::{search::{search_common::AcTableBuilder, SearchFuture, ac_cpu::AcCpu, pfac_gpu::PfacGpu, Searcher}, utils::iter::ToGappedWindows};
+use libsearchlight::lib::{search::{search_common::AcTableBuilder, SearchFuture, ac_cpu::AcCpu, pfac_gpu::PfacGpu, Searcher}, utils::iter::ToGappedWindows};
 
 criterion_group!(benches, search_bench);
 criterion_main!(benches);

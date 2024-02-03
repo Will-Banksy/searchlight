@@ -425,7 +425,7 @@ mod test {
 	fn test_io_manager_filebuf() {
 		let mut ioman = IoManager::new();
 
-		let path = "test_data/io_test.dat";
+		let path = "../test_data/io_test.dat";
 		let block_size = 10;
 
 		ioman.open_with(path, true, false, {
@@ -434,14 +434,14 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
 	}
 
 	#[test]
 	fn test_io_manager_mmap() {
 		let mut ioman = IoManager::new();
 
-		let path = "test_data/io_test.dat";
+		let path = "../test_data/io_test.dat";
 		let block_size = 10;
 
 		ioman.open_with(path, true, false, {
@@ -450,7 +450,7 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
 	}
 
 	#[test]
@@ -460,7 +460,7 @@ mod test {
 
 		let mut ioman = IoManager::new();
 
-		let path = "test_data/io_test.dat";
+		let path = "../test_data/io_test.dat";
 		let block_size = 10;
 
 		ioman.open_with(path, true, false, {
@@ -469,14 +469,14 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
 	}
 
 	#[test]
 	fn test_io_manager_direct() {
 		let mut ioman = IoManager::new();
 
-		let path = "test_data/io_test.dat";
+		let path = "../test_data/io_test.dat";
 		let block_size = 10;
 
 		ioman.open_with(path, true, false, {
@@ -485,7 +485,7 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
 	}
 
 	#[cfg(test)]

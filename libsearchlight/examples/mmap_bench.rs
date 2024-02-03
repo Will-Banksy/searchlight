@@ -1,10 +1,10 @@
 use std::time::Instant;
 
-use searchlight::lib::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, direct, AccessPattern};
+use libsearchlight::lib::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, mmap, AccessPattern};
 
 const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 
-/// This example is just a filebuf backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10
+/// This example is just a mmap backend benchmark, where I can run it once, as Criterion doesn't like sample sizes less than 10
 fn main() {
 	let mut ioman = IoManager::new();
 
@@ -13,7 +13,7 @@ fn main() {
 
 	ioman.open_with(path, true, false, {
 		GenIoBackend::Seq(
-			direct::IoDirect::new(path, true, false, AccessPattern::Seq, block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
+			mmap::IoMmap::new(path, true, false, AccessPattern::Seq, block_size).map(|io_filebuf| Box::new(io_filebuf)).expect(&format!("Failed to open {}", path))
 		)
 	});
 

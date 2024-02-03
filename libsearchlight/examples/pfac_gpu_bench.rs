@@ -1,6 +1,6 @@
 
 #[cfg(feature = "gpu")]
-use searchlight::lib::{search::{search_common::AcTableBuilder, pfac_gpu::PfacGpu, SearchFuture, Searcher}, utils::iter::ToGappedWindows};
+use libsearchlight::lib::{search::{search_common::AcTableBuilder, pfac_gpu::PfacGpu, SearchFuture, Searcher}, utils::iter::ToGappedWindows};
 
 const BENCH_FILE: &'static str = "test_data/ubnist1.gen3.raw";
 const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
