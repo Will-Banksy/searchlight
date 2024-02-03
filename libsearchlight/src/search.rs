@@ -163,10 +163,10 @@ mod test {
 	use super::{clmul, FNV_OFFSET_BASIS, FNV_PRIME};
 
 	#[cfg(feature = "big_tests")]
-	use crate::sl_error;
+	use log::error;
 
 	#[cfg(feature = "big_tests")]
-	use super::{ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Searcher, SearchFuture, Match};
+	use super::{super::utils, ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Searcher, SearchFuture, Match};
 
 	const TEST_FILE: &'static str = "../test_data/ubnist1.gen3.raw";
 	const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
@@ -217,6 +217,8 @@ mod test {
 	#[test]
 	#[cfg(feature = "big_tests")]
 	fn test_search_impls() { // TODO: Revisit. Ideally this would be a super fast test case to run cause nobody likes waiting for tests to run. Ideally it'd also run on CI, so I need a smaller file to ship with the code
+		utils::init_test_logger();
+
 		let test_data = fs::read(TEST_FILE).unwrap();
 
 		let mut table = AcTableBuilder::new(true);
@@ -238,12 +240,12 @@ mod test {
 
 		for window_idx in ac_windowed_matches.keys() {
 			if !pfac_windowed_matches.contains_key(window_idx) {
-				sl_error!("test_search_impls", format!("Key {} is not contained in pfac_windowed_matches", window_idx));
+				error!(target: "test_search_impls", "Key {} is not contained in pfac_windowed_matches", window_idx);
 				continue;
 			}
 			for (i, (ac_match, pfac_match)) in ac_windowed_matches[window_idx].iter().zip(pfac_windowed_matches[window_idx].iter()).enumerate() {
 				if ac_match != pfac_match {
-					sl_error!("test_search_impls", format!("Matches at idx {} in window {} do not match", i, window_idx));
+					error!(target: "test_search_impls", "Matches at idx {} in window {} do not match", i, window_idx);
 				}
 			}
 		}
