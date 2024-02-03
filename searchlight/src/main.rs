@@ -4,7 +4,7 @@
 
 use std::fs;
 
-use libsearchlight::lib::searchlight::{config::SearchlightConfig, Searchlight};
+use libsearchlight::searchlight::{config::SearchlightConfig, Searchlight};
 
 fn main() {
 	let config_string = fs::read_to_string("Searchlight.toml");

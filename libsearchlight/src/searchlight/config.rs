@@ -3,7 +3,7 @@ use std::fmt::Write;
 use colored::Colorize;
 use serde::Deserialize;
 
-use crate::lib::error::Error;
+use crate::error::Error;
 
 #[derive(Deserialize, Debug)]
 pub struct SearchlightConfig {

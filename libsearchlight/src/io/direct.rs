@@ -1,6 +1,6 @@
 use std::{fs::File, alloc::{self, Layout}, slice, io::{Read, Seek, SeekFrom, Write}};
 
-use crate::lib::io::DEFAULT_ALIGNMENT;
+use crate::io::DEFAULT_ALIGNMENT;
 
 use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, RandIoBackend, BackendError, AccessPattern};
 

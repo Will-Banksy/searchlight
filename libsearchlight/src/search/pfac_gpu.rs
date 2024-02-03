@@ -37,7 +37,7 @@ use std::{sync::Arc, ops::DerefMut, time::Duration, io::Write};
 
 use vulkano::{instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Features, Device, DeviceCreateInfo, QueueCreateInfo, Queue}, VulkanLibrary, memory::{allocator::{StandardMemoryAllocator, MemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocatePreference, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::{PipelineDescriptorSetLayoutCreateInfo, PushConstantRange, PipelineLayoutCreateFlags}, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet, layout::{DescriptorSetLayoutCreateInfo, DescriptorSetLayoutBinding, DescriptorType}}, image::{Image, ImageCreateInfo, ImageType, ImageUsage, view::ImageView}, format::Format, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo, CopyBufferInfo}, sync::{self, GpuFuture}, shader::ShaderStage};
 
-use crate::{lib::{error::{Error, VulkanError}, utils::iter::ToChunksExact}, sl_info};
+use crate::{{error::{Error, VulkanError}, utils::iter::ToChunksExact}, sl_info};
 
 use super::{search_common::AcTable, SearchFuture, Match, Searcher};
 
@@ -423,7 +423,7 @@ impl Searcher for PfacGpu {
 
 #[cfg(test)]
 mod test {
-	use crate::lib::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, pfac_gpu::PfacGpu, Searcher};
+	use crate::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, pfac_gpu::PfacGpu, Searcher};
 
 	#[test]
 	fn test_pfac_gpu_single() {

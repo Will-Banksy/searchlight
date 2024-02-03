@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 #[cfg(target_os = "linux")]
-use libsearchlight::lib::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, io_uring::{self, DEFAULT_URING_READ_SIZE}, AccessPattern};
+use libsearchlight::io::{IoManager, GenIoBackend, DEFAULT_BLOCK_SIZE, io_uring::{self, DEFAULT_URING_READ_SIZE}, AccessPattern};
 
 const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 

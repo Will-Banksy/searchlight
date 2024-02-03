@@ -2,7 +2,7 @@ use std::{fs::File, alloc::{self, Layout}, slice, collections::VecDeque};
 
 use rio::{Rio, Completion};
 
-use crate::lib::io::DEFAULT_ALIGNMENT;
+use crate::io::DEFAULT_ALIGNMENT;
 
 use super::{SeqIoBackend, file_len, BackendInfo, BackendError, IoBackend, AccessPattern};
 

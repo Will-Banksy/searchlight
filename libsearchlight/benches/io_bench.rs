@@ -1,7 +1,7 @@
 use std::{hint::black_box, fs::File};
 
 use criterion::{Criterion, criterion_main, criterion_group, Bencher, Throughput, BenchmarkId};
-use libsearchlight::lib::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE, DEFAULT_ALIGNMENT, GenIoBackend, AccessPattern};
+use libsearchlight::io::{IoManager, mmap, filebuf, io_uring, direct, DEFAULT_BLOCK_SIZE, DEFAULT_ALIGNMENT, GenIoBackend, AccessPattern};
 
 #[cfg(target_os = "linux")]
 criterion_group!(benches, io_bench, io_uring_bench);

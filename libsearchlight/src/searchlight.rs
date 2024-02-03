@@ -1,6 +1,6 @@
 pub mod config;
 
-use crate::lib::error::Error;
+use crate::error::Error;
 
 use self::config::SearchlightConfig;
 

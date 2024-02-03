@@ -1,4 +1,4 @@
-use crate::lib::error::Error;
+use crate::error::Error;
 
 use super::{search_common::AcTable, SearchFuture, match_id_hash_init, match_id_hash_add, Match, Searcher};
 
@@ -75,7 +75,7 @@ impl Searcher for AcCpu {
 
 #[cfg(test)]
 mod test {
-	use crate::lib::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, ac_cpu::AcCpu, Searcher};
+	use crate::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, ac_cpu::AcCpu, Searcher};
 
 	#[test]
 	fn test_ac_cpu_single() {

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use libsearchlight::lib::io::{IoManager, filebuf, GenIoBackend, DEFAULT_BLOCK_SIZE, AccessPattern};
+use libsearchlight::io::{IoManager, filebuf, GenIoBackend, DEFAULT_BLOCK_SIZE, AccessPattern};
 
 const BENCH_FILE: &'static str = "test_data/io_bench.dat";
 

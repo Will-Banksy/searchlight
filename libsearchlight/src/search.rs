@@ -7,7 +7,7 @@ pub mod pairing;
 use self::{search_common::AcTable, ac_cpu::AcCpu};
 
 #[cfg(feature = "gpu")]
-use crate::lib::utils::logging::sl_warn;
+use crate::utils::logging::sl_warn;
 
 use super::error::Error;
 
@@ -160,7 +160,7 @@ fn clmul(mut x: u64, mut y: u64) -> u64 {
 mod test {
     use std::{collections::BTreeMap, fs};
 
-	use crate::lib::utils::iter::ToGappedWindows;
+	use crate::utils::iter::ToGappedWindows;
 
 	use super::{clmul, FNV_OFFSET_BASIS, FNV_PRIME};
 
@@ -170,7 +170,7 @@ mod test {
 	#[cfg(feature = "big_tests")]
 	use super::{ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Searcher, SearchFuture, Match};
 
-	const TEST_FILE: &'static str = "test_data/ubnist1.gen3.raw";
+	const TEST_FILE: &'static str = "../test_data/ubnist1.gen3.raw";
 	const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
 
 	#[test]

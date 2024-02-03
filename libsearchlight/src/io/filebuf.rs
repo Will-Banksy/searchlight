@@ -2,7 +2,7 @@ use std::{fs::File, io::Read, sync::{Arc, mpsc::{Receiver, self, Sender}}, threa
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
 
-use crate::lib::io::DEFAULT_ALIGNMENT;
+use crate::io::DEFAULT_ALIGNMENT;
 
 use super::{SeqIoBackend, file_len, BackendInfo, IoBackend, BackendError, AccessPattern};
 

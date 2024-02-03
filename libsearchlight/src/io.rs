@@ -434,7 +434,7 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
 	}
 
 	#[test]
@@ -450,7 +450,7 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
 	}
 
 	#[test]
@@ -469,7 +469,7 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
 	}
 
 	#[test]
@@ -485,7 +485,7 @@ mod test {
 			)
 		});
 
-		test_io_manager(ioman, path, include_str!("../../../test_data/io_test.dat"))
+		test_io_manager(ioman, path, include_str!("../../test_data/io_test.dat"))
 	}
 
 	#[cfg(test)]

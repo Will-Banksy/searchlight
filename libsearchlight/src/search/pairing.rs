@@ -1,7 +1,7 @@
 use core::fmt;
 use std::collections::HashMap;
 
-use crate::{lib::searchlight::config::{FileType, PairingStrategy, SearchlightConfig}, sl_warn};
+use crate::{searchlight::config::{FileType, PairingStrategy, SearchlightConfig}, sl_warn};
 
 use super::{Match, match_id_hash_slice};
 
@@ -300,7 +300,7 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: &HashMap<u64, (usize, &'
 
 #[cfg(test)]
 mod test {
-    use crate::lib::{search::{match_id_hash_slice, pairing::MatchPair, Match}, searchlight::config::{FileType, PairingStrategy, SearchlightConfig}};
+    use crate::{search::{match_id_hash_slice, pairing::MatchPair, Match}, searchlight::config::{FileType, PairingStrategy, SearchlightConfig}};
 
     use super::{pair, preprocess_config};
 

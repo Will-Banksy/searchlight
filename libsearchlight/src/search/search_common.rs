@@ -193,7 +193,7 @@ fn hash_suffix(suffix: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod test {
-    use crate::lib::search::search_common::ir::{NodeIR, ConnectionIR};
+    use crate::search::search_common::ir::{NodeIR, ConnectionIR};
 
     use super::AcTableBuilder;
 
