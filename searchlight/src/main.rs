@@ -1,17 +1,23 @@
 // TODO: Go through the BUG: unwrap markings and sort out the ones that are actually a bug and those that are intentional, and try fix those that are a bug
 // NOTE: Queuing read operations with io_uring might have a more substantial performance improvement for HDDs, as it may be able to reduce the amount of disk rotations - but for a single file, would it be any better? Perhaps look into this
 // TODO: Maybe change io_test.dat to be more random or to hit more edge cases or something
+mod args;
 
 use std::{fs, io::Write};
 
+use args::Args;
+use clap::Parser;
 use libsearchlight::searchlight::{config::SearchlightConfig, Searchlight};
 use log::{error, info};
 
 fn main() {
-	env_logger::builder()
+	let args = Args::parse();
+
+	env_logger::Builder::new()
+		.filter_level(args.verbose.log_level_filter())
 		.format(|f, record| {
 			let level_style = f.default_level_style(record.level());
-			writeln!(f, "[{} {}/{}{}{}]: {}", f.timestamp(), record.target(), level_style.render(), record.level(), level_style.render_reset(), record.args())
+			writeln!(f, "[{} {}/{}{}{}\t]: {}", f.timestamp(), record.target(), level_style.render(), record.level(), level_style.render_reset(), record.args())
 		})
 		.init();
 
@@ -29,9 +35,7 @@ fn main() {
 	}
 	let config: SearchlightConfig = config.unwrap();
 
-	if !config.quiet {
-		info!("config: {:?}", config);
-	}
+	info!("config: {:?}", config);
 
 	let searchlight = Searchlight::new(config);
 	if let Err(e) = searchlight {

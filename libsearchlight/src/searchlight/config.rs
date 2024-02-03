@@ -4,16 +4,8 @@ use crate::error::Error;
 
 #[derive(Deserialize, Debug)]
 pub struct SearchlightConfig {
-	#[serde(default)]
-	pub only_cpu: bool,
-	#[serde(default)]
-	pub verbose: bool,
-	#[serde(default)]
-	pub quiet: bool,
 	#[serde(rename = "file_type")]
 	pub file_types: Vec<FileType>,
-	#[serde(skip)]
-	pub log: Option<String>,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -62,11 +54,7 @@ impl FileType {
 impl Default for SearchlightConfig {
     fn default() -> Self {
         Self {
-			only_cpu: false,
-			verbose: false,
-			quiet: false,
 			file_types: Vec::new(),
-			log: None,
 		}
     }
 }

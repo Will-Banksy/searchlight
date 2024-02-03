@@ -52,7 +52,7 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 	for i in 0..(config.file_types.len()) {
 		for header in &config.file_types[i].headers {
 			let id = match_id_hash_slice(&header);
-			if !config.quiet && id_ftype_map.contains_key(&id) {
+			if id_ftype_map.contains_key(&id) {
 				warn!(
 					"Collision detected, matches of this byte sequence may be misattributed (header: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
 					header,
@@ -63,7 +63,7 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 		}
 		for footer in &config.file_types[i].footers {
 			let id = match_id_hash_slice(&footer);
-			if !config.quiet && id_ftype_map.contains_key(&id) {
+			if id_ftype_map.contains_key(&id) {
 				warn!(
 					"Collision detected, matches of this byte sequence may be misattributed (footer: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
 					footer,
