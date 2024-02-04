@@ -2,6 +2,8 @@ use std::{hash::{Hash, Hasher}, collections::{HashMap, hash_map::DefaultHasher}}
 
 use log::info;
 
+use crate::searchlight::config::SearchlightConfig;
+
 use self::ir::{NodeIR, ConnectionIR};
 
 mod ir {
@@ -52,6 +54,21 @@ impl AcTableBuilder {
 			suffix_idx_map: HashMap::new(),
 			max_pat_len: 0
 		}
+	}
+
+	pub fn from_config(config: &SearchlightConfig) -> Self {
+		let mut builder = AcTableBuilder::new(true);
+
+		for ft in &config.file_types {
+			for head in &ft.headers {
+				builder.add_pattern(&head);
+			}
+			for foot in &ft.footers {
+				builder.add_pattern(&foot);
+			}
+		}
+
+		builder
 	}
 
 	pub fn with_pattern(mut self, pattern: &[u8]) -> Self {

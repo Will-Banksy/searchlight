@@ -9,9 +9,9 @@ use super::{Match, match_id_hash_slice};
 
 #[derive(PartialEq)]
 pub struct MatchPair<'a> {
-	file_type: &'a FileType,
-	start_idx: u64,
-	end_idx: u64
+	pub file_type: &'a FileType,
+	pub start_idx: u64,
+	pub end_idx: u64
 }
 
 impl fmt::Debug for MatchPair<'_> {
@@ -181,7 +181,7 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: &HashMap<u64, (usize, &'
 									)
 								);
 								add_footer = false;
-								match_stack.remove(mi);
+								match_stack.remove(match_stack.len() - 1);
 								match_stack.remove(header_idx);
 								matches_to_remove.push(mi);
 								matches_to_remove.push(header_match_idx);
@@ -292,8 +292,6 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: &HashMap<u64, (usize, &'
 	for &rem_idx in matches_to_remove.iter().rev() {
 		matches.remove(rem_idx);
 	}
-
-	println!("match_tracker: {:?}", match_tracker);
 
 	complete_matches
 }

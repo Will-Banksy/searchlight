@@ -2,6 +2,8 @@
 name = "searchlight"
 version = "0.1.0"
 edition = "2021"
+authors = [ "Will B. <williamjb555@gmail.com>" ]
+description = "A WIP high performance, precise file carving tool"
 
 [dependencies]
 libsearchlight = { path = "../libsearchlight" }
@@ -10,3 +12,4 @@ log = "0.4.20"
 env_logger = "0.11.1"
 clap = "4.4.18"
 clap-verbosity-flag = "2.1.2"
+humantime = "2.1.0"

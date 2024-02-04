@@ -63,26 +63,30 @@ mod vulkan_error {
 	}
 }
 
-use std::fmt::Display;
+use std::{fmt::Display, io};
+
+use crate::io::IoManagerError;
 
 #[cfg(feature = "gpu")]
 pub use self::vulkan_error::VulkanError;
 
-// macro_rules! impl_from_for_variant {
-// 	($variant: path, $contained_type: ty) => {
-// 		impl From<$contained_type> for Error {
-// 			fn from(value: $contained_type) -> Self {
-// 				$variant(value)
-// 			}
-// 		}
-// 	};
-// }
+macro_rules! impl_from_for_variant {
+	($variant: path, $contained_type: ty) => {
+		impl From<$contained_type> for Error {
+			fn from(value: $contained_type) -> Self {
+				$variant(value)
+			}
+		}
+	};
+}
 
 #[derive(Debug)]
 pub enum Error {
 	#[cfg(feature = "gpu")]
 	VulkanError(VulkanError),
-	ConfigValidationError(String)
+	ConfigValidationError(String),
+	IoError(io::Error),
+	IoManagerError(IoManagerError), // TODO: Try and compress the amount of errors in IoManagerError (with custom std::io::Errors) and move them into here (see https://nrc.github.io/error-docs/error-design/error-type-design.html)
 }
 
 impl Display for Error {
@@ -91,9 +95,14 @@ impl Display for Error {
 			#[cfg(feature = "gpu")]
 			Error::VulkanError(e) => e.to_string(),
 			Error::ConfigValidationError(msg) => msg.to_string(),
+			Error::IoError(e) => e.to_string(),
+			Error::IoManagerError(e) => e.to_string(),
 		})
 	}
 }
+
+impl_from_for_variant!(Error::IoError, io::Error);
+impl_from_for_variant!(Error::IoManagerError, IoManagerError);
 
 #[cfg(feature = "gpu")]
 impl<T> From<T> for Error where T: Into<VulkanError> {

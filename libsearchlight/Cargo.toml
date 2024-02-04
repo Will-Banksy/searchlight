@@ -2,6 +2,8 @@
 name = "libsearchlight"
 version = "0.1.0"
 edition = "2021"
+authors = [ "Will B. <williamjb555@gmail.com>" ]
+description = "A WIP high performance, precise file carving library"
 
 [features]
 default = [ "gpu" ]

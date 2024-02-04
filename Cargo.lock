@@ -828,6 +828,7 @@ dependencies = [
  "clap",
  "clap-verbosity-flag",
  "env_logger",
+ "humantime",
  "libsearchlight",
  "log",
  "toml",

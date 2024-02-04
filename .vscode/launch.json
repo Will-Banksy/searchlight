@@ -178,14 +178,18 @@
 				"args": [
 					"build",
 					"--bin=searchlight",
-					"--package=searchlight"
+					"--package=searchlight",
 				],
 				"filter": {
 					"name": "searchlight",
 					"kind": "bin"
 				}
 			},
-			"args": [],
+			"args": [
+				"-v",
+				"-i",
+				"test_data/nps-2009-canon2-gen6.raw"
+			],
 			"cwd": "${workspaceFolder}"
 		},
 		{

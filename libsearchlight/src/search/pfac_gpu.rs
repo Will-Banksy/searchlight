@@ -42,8 +42,8 @@ use crate::{error::{Error, VulkanError}, utils::iter::ToChunksExact};
 
 use super::{search_common::AcTable, SearchFuture, Match, Searcher};
 
-const INPUT_BUFFER_SIZE: u64 = 1024 * 1024;
-const OUTPUT_BUFFER_SIZE: u64 = 1024 * 1024;
+pub const INPUT_BUFFER_SIZE: u64 = 1024 * 1024;
+pub const OUTPUT_BUFFER_SIZE: u64 = 1024 * 1024;
 
 pub struct PfacGpu {
 	vkdev: Arc<Device>,

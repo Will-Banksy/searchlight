@@ -8,7 +8,7 @@ use std::{io::{self, Seek}, fs::{File, OpenOptions}, collections::HashMap};
 #[cfg(target_os = "linux")]
 use std::os::{unix::prelude::OpenOptionsExt, fd::AsRawFd};
 
-pub const DEFAULT_BLOCK_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1 GiB
+pub const DEFAULT_BLOCK_SIZE: u64 = 1024 * 1024; // 1 MiB
 pub const DEFAULT_ALIGNMENT: usize = 4096;
 
 // TODO: What if, for example, read_next simply queued a read and and the backend may give the function to another thread to call when the read is finished
@@ -149,7 +149,7 @@ impl IoManager { // TODO: Rethink I/O management in searchlight. In cases, it co
 	///
 	/// This function will return nothing if the file was successfully opened, and an error if one occurred. An error will be returned if read and write are both false,
 	/// or if an error is returned by the backend, which is backend-dependent, but often because the file couldn't be opened, or a lack of permissions.
-	pub fn open(&mut self, path: &str, read: bool, write: bool, access_pattern: AccessPattern, req_block_size: Option<u64>) -> Result<(), IoManagerError> {
+	pub fn open(&mut self, path: impl AsRef<str>, read: bool, write: bool, access_pattern: AccessPattern, req_block_size: Option<u64>) -> Result<(), IoManagerError> {
 		if !read && !write {
 			return Err(IoManagerError::InvalidOperation("Cannot open a file in neither read or write mode".to_string()));
 		}
@@ -159,7 +159,7 @@ impl IoManager { // TODO: Rethink I/O management in searchlight. In cases, it co
 		/// Macros for creating/inserting workers to avoid repeating code
 		macro_rules! ins_worker {
 			($backend_cons: expr, $geniobackend_variant: ident) => {
-				self.io_backends.insert(path.to_string(),
+				self.io_backends.insert(path.as_ref().to_string(),
 					IoWorker {
 						backend: GenIoBackend::$geniobackend_variant(Box::new(
 							$backend_cons
@@ -173,7 +173,7 @@ impl IoManager { // TODO: Rethink I/O management in searchlight. In cases, it co
 		macro_rules! ins_worker_auto {
 			($backend_struct: ty, $geniobackend_variant: ident) => {
 				ins_worker!(
-					<$backend_struct>::new(path, read, write, access_pattern, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
+					<$backend_struct>::new(path.as_ref(), read, write, access_pattern, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
 					$geniobackend_variant
 				)
 			};
@@ -206,7 +206,7 @@ impl IoManager { // TODO: Rethink I/O management in searchlight. In cases, it co
 			// If the access pattern is unspecified, it's probably sensible to assume the caller might want random and sequential reads
 			AccessPattern::RandSeq | AccessPattern::Unspecified => {
 				ins_worker!(
-					direct::IoDirect::new(path, read, write, AccessPattern::RandSeq, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
+					direct::IoDirect::new(path.as_ref(), read, write, AccessPattern::RandSeq, req_block_size).map_err(|e| IoManagerError::BackendError(e))?,
 					RandSeq
 				);
 			},

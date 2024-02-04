@@ -3,46 +3,53 @@
 // TODO: Maybe change io_test.dat to be more random or to hit more edge cases or something
 mod args;
 
-use std::{fs, io::Write};
+use std::{fs, io::Write, time::SystemTime};
 
 use args::Args;
 use clap::Parser;
-use libsearchlight::searchlight::{config::SearchlightConfig, Searchlight};
+use libsearchlight::searchlight::Searchlight;
 use log::{error, info};
 
 fn main() {
-	let args = Args::parse();
+	let mut args = Args::parse();
 
 	env_logger::Builder::new()
 		.filter_level(args.verbose.log_level_filter())
 		.format(|f, record| {
 			let level_style = f.default_level_style(record.level());
-			writeln!(f, "[{} {}/{}{}{}\t]: {}", f.timestamp(), record.target(), level_style.render(), record.level(), level_style.render_reset(), record.args())
+			writeln!(f, "[{} {}/{}{}{}]: {}", f.timestamp(), record.target(), level_style.render(), record.level(), level_style.render_reset(), record.args())
 		})
 		.init();
 
-	let config_string = fs::read_to_string("Searchlight.toml");
-	if let Err(e) = config_string {
-		error!("Could not open config file \"Searchlight.toml\": {}", e);
-		return;
-	}
-	let config_string = config_string.unwrap();
+	info!("args: {:?}", args);
 
-	let config = toml::from_str(&config_string);
-	if let Err(e) = config {
-		error!("Error processing config file \"Searchlight.toml\": {}", e);
-		return;
-	}
-	let config: SearchlightConfig = config.unwrap();
+	args.config = Some(args.config.unwrap_or("Searchlight.toml".to_string()));
+
+	let config = match fs::read_to_string(args.config.as_ref().unwrap()) {
+		Ok(config_string) => match toml::from_str(&config_string) {
+			Ok(config) => config,
+			Err(e) => {
+				error!("Error processing config file \"{}\": {}", args.config.unwrap(), e);
+				return;
+			}
+		},
+		Err(e) => {
+			error!("Could not open config file \"{}\": {}", args.config.unwrap(), e);
+			return;
+		}
+	};
 
 	info!("config: {:?}", config);
 
-	let searchlight = Searchlight::new(config);
-	if let Err(e) = searchlight {
-		error!("Failed to initialise Searchlight: {}", e);
-		return;
-	}
-	let searchlight = searchlight.unwrap();
+	let mut searchlight = match Searchlight::new(config) {
+		Ok(searchlight) => searchlight.with_file(&args.input),
+		Err(e) => {
+			error!("Failed to initialise Searchlight: {}", e);
+			return;
+		}
+	};
+
+	searchlight.process_file(args.out_dir.unwrap_or(humantime::format_rfc3339(SystemTime::now()).to_string())).unwrap();
 
 	// let result = searchlight.open("path/to/image");
 	// if let Err(e) = result {

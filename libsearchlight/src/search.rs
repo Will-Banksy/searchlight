@@ -57,7 +57,8 @@ pub trait Searcher {
 }
 
 pub struct Search {
-	search_impl: Box<dyn Searcher>
+	search_impl: Box<dyn Searcher>,
+	max_search_size: Option<usize>
 }
 
 impl Search {
@@ -71,7 +72,8 @@ impl Search {
 				match PfacGpu::new(table.clone()) {
 					Ok(pfac_gpu) => {
 						return Search {
-							search_impl: Box::new(pfac_gpu)
+							search_impl: Box::new(pfac_gpu),
+							max_search_size: Some(pfac_gpu::INPUT_BUFFER_SIZE as usize)
 						};
 					}
 					Err(e) => {
@@ -82,8 +84,13 @@ impl Search {
 		}
 
 		return Search {
-			search_impl: Box::new(AcCpu::new(table))
+			search_impl: Box::new(AcCpu::new(table)),
+			max_search_size: None
 		};
+	}
+
+	pub fn max_search_size(&self) -> Option<usize> {
+		self.max_search_size
 	}
 }
 

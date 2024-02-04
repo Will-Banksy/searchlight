@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Build
-        run: cargo build --verbose --no-default-features --package libsearchlight
+        run: cargo build --verbose --no-default-features
 
   test:
     runs-on: windows-latest
