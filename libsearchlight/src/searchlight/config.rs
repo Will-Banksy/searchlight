@@ -8,7 +8,7 @@ pub struct SearchlightConfig {
 	pub file_types: Vec<FileType>,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Default)]
 pub struct FileType {
 	pub headers: Vec<Vec<u8>>,
 	#[serde(default)]
@@ -16,10 +16,19 @@ pub struct FileType {
 	#[serde(default)]
 	pub extension: Option<String>,
 	#[serde(default)]
+	pub type_id: FileTypeId,
+	#[serde(default)]
 	pub pairing: PairingStrategy,
 	pub max_len: Option<u64>,
 	#[serde(default)]
 	pub requires_footer: bool
+}
+
+#[derive(Deserialize, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum FileTypeId {
+	Unknown,
+	Jpg,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -57,6 +66,12 @@ impl Default for SearchlightConfig {
 			file_types: Vec::new(),
 		}
     }
+}
+
+impl Default for FileTypeId {
+	fn default() -> Self {
+		FileTypeId::Unknown
+	}
 }
 
 impl Default for PairingStrategy {

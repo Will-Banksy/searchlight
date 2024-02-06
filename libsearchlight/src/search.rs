@@ -8,6 +8,7 @@ use self::{search_common::AcTable, ac_cpu::AcCpu};
 
 use super::error::Error;
 
+#[cfg(feature = "gpu")]
 use log::warn;
 #[cfg(feature = "gpu")]
 use pfac_gpu::PfacGpu;

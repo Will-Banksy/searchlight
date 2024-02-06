@@ -519,7 +519,8 @@ mod test {
 					extension: Some("ft0".to_string()),
 					pairing: PairingStrategy::PairNext,
 					max_len: Some(10),
-					requires_footer: true
+					requires_footer: true,
+					..Default::default()
 				},
 				FileType {
 					headers: vec![ "ft1_header".bytes().collect() ],
@@ -527,7 +528,8 @@ mod test {
 					extension: Some("ft1".to_string()),
 					pairing: PairingStrategy::PairNext,
 					max_len: Some(10),
-					requires_footer: true
+					requires_footer: true,
+					..Default::default()
 				},
 				FileType {
 					headers: vec![ "ft2_header".bytes().collect() ],
@@ -535,7 +537,8 @@ mod test {
 					extension: Some("ft2".to_string()),
 					pairing: PairingStrategy::PairLast,
 					max_len: Some(10),
-					requires_footer: true
+					requires_footer: true,
+					..Default::default()
 				},
 				FileType {
 					headers: vec![ "ft3_header".bytes().collect() ],
@@ -543,7 +546,8 @@ mod test {
 					extension: Some("ft3".to_string()),
 					pairing: PairingStrategy::PairLast,
 					max_len: Some(11),
-					requires_footer: true
+					requires_footer: true,
+					..Default::default()
 				},
 				FileType {
 					headers: vec![ "ft4_header".bytes().collect() ],
@@ -551,7 +555,8 @@ mod test {
 					extension: Some("ft4".to_string()),
 					pairing: PairingStrategy::PairNext,
 					max_len: Some(10),
-					requires_footer: false
+					requires_footer: false,
+					..Default::default()
 				},
 				FileType {
 					headers: vec![ "ft5_header".bytes().collect() ],
@@ -559,7 +564,8 @@ mod test {
 					extension: Some("ft5".to_string()),
 					pairing: PairingStrategy::PairLast,
 					max_len: Some(10),
-					requires_footer: false
+					requires_footer: false,
+					..Default::default()
 				},
 			],
 			..Default::default()

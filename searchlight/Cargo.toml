@@ -5,8 +5,12 @@ edition = "2021"
 authors = [ "Will B. <williamjb555@gmail.com>" ]
 description = "A WIP high performance, precise file carving tool"
 
+[features]
+default = [ "gpu" ]
+gpu = [ "libsearchlight/gpu" ]
+
 [dependencies]
-libsearchlight = { path = "../libsearchlight" }
+libsearchlight = { path = "../libsearchlight", default-features = false }
 toml = "0.8.8"
 log = "0.4.20"
 env_logger = "0.11.1"
