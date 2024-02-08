@@ -5,7 +5,7 @@ use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::
 use log::{debug, info, log_enabled, Level};
 use memmap::MmapOptions;
 
-use crate::{error::Error, io::file_len, search::{pairing::{self, pair}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::iter::ToGappedWindows};
+use crate::{error::Error, io::file_len, search::{pairing::{self, pair}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::iter::ToGappedWindows, validation::{DelegatingValidator, FileValidationType, FileValidator}};
 
 use self::config::SearchlightConfig;
 
@@ -99,7 +99,7 @@ impl Searchlight {
 					if i == 0 {
 						searcher.search(window, 0).unwrap()
 					} else {
-						searcher.search_next(window, (i * block_size - max_pat_len) as u64).unwrap()
+						searcher.search_next(window, (i * (block_size - max_pat_len)) as u64).unwrap()
 					}
 				};
 				result_fut = Some(fut);
@@ -126,13 +126,34 @@ impl Searchlight {
 
 			info!("Searching complete: Found {} potential files ({} individual matches)", match_pairs.len(), num_matches);
 
-			// TODO: Very basic testing with carving JPEGs showed that many JPEGs have their footer throughout their content
-			//       Is there any way to combat this? Perhaps the validator can say "the footer that has been found is not a real footer, look for the next one instead"
+			// Create output directory, erroring if it exists already
+			fs::create_dir(output_dir.as_ref())?;
 
-			fs::create_dir(output_dir.as_ref()).unwrap();
+			let validator = DelegatingValidator::new();
 
 			for pot_file in match_pairs {
-				fs::write(format!("{}/{}-{}.{}", output_dir.as_ref(), pot_file.start_idx, pot_file.end_idx, pot_file.file_type.extension.clone().unwrap_or("".to_string())), &mmap[pot_file.start_idx as usize..pot_file.end_idx as usize]).unwrap();
+				let validation = validator.validate(&mmap, &pot_file);
+
+				debug!("Potential file at {}-{} (type {:?}) validated as: {}, with len {:?}", pot_file.start_idx, pot_file.end_idx, pot_file.file_type.type_id, validation.validation_type, validation.file_len);
+
+				if validation.validation_type != FileValidationType::Unrecognised {
+					let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx);
+
+					// Create validation directory if it doesn't exist
+					fs::create_dir_all(format!("{}/{}", output_dir.as_ref(), validation.validation_type.to_string()))?;
+
+					// Write the file content into output directory
+					fs::write(
+						format!("{}/{}/{}-{}.{}",
+							output_dir.as_ref(),
+							validation.validation_type,
+							pot_file.start_idx,
+							end_idx,
+							pot_file.file_type.extension.clone().unwrap_or("".to_string())
+						),
+						&mmap[pot_file.start_idx as usize..end_idx as usize]
+					)?;
+				}
 			}
 
 			Ok(true)

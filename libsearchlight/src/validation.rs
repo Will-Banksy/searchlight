@@ -1,14 +1,14 @@
-pub mod jpg;
+pub mod jpeg;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 
-use self::jpg::JpgValidator;
+use self::jpeg::JpegValidator;
 
 // TODO: Modify to allow for validating a reconstructed fragmented file (e.g. by taking a slice of slices of the file data)
 pub trait FileValidator {
-	fn validate(&self, file_data: &[u8], file_match: MatchPair) -> FileValidationInfo;
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo;
 }
 
 pub struct FileValidationInfo {
@@ -16,6 +16,7 @@ pub struct FileValidationInfo {
 	pub file_len: Option<u64>,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum FileValidationType {
 	Correct,
 	Partial,
@@ -23,6 +24,19 @@ pub enum FileValidationType {
 	Corrupted,
 	Unrecognised,
 	Unanalysed
+}
+
+impl Display for FileValidationType {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", match self {
+			FileValidationType::Correct=>"correct",
+			FileValidationType::Partial => "partial",
+			FileValidationType::FormatError => "format_error",
+			FileValidationType::Corrupted => "corrupted",
+			FileValidationType::Unrecognised => "unrecognised",
+			FileValidationType::Unanalysed => "unanalysed",
+		})
+	}
 }
 
 /// This validator, upon construction, instantiates all defined validators and when `validate` is called it will read the file type id from
@@ -36,8 +50,8 @@ impl DelegatingValidator {
 		DelegatingValidator {
 			validators: [
 				(
-					FileTypeId::Jpg,
-					Box::new(JpgValidator::new()) as Box<dyn FileValidator>
+					FileTypeId::Jpeg,
+					Box::new(JpegValidator::new()) as Box<dyn FileValidator>
 				)
 			].into()
 		}
@@ -45,7 +59,7 @@ impl DelegatingValidator {
 }
 
 impl FileValidator for DelegatingValidator {
-	fn validate(&self, file_data: &[u8], file_match: MatchPair) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo {
 		if let Some(validator) = self.validators.get(&file_match.file_type.type_id) {
 			validator.validate(file_data, file_match)
 		} else {

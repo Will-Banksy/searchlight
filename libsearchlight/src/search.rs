@@ -162,10 +162,11 @@ fn clmul(mut x: u64, mut y: u64) -> u64 {
 }
 
 #[cfg(test)]
-#[allow(unused)]
 mod test {
+	#[cfg(feature = "big_tests")]
     use std::{collections::BTreeMap, fs};
 
+	#[cfg(feature = "big_tests")]
 	use crate::utils::iter::ToGappedWindows;
 
 	use super::{clmul, FNV_OFFSET_BASIS, FNV_PRIME};
@@ -176,8 +177,10 @@ mod test {
 	#[cfg(feature = "big_tests")]
 	use super::{super::utils, ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Searcher, SearchFuture, Match};
 
-	const TEST_FILE: &'static str = "../test_data/ubnist1.gen3.raw";
-	const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
+	#[cfg(feature = "big_tests")]
+	const TEST_FILE: &'static str = "../test_data/nps-2009-canon2-gen6.raw"; // "../test_data/ubnist1.gen3.raw";
+	#[cfg(feature = "big_tests")]
+	const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0xff, 0xd8, 0xff, 0xe0 ], &[ 0xff, 0xd8, 0xff, 0xe1 ] ]; // &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ]
 
 	#[test]
 	fn test_clmul() {

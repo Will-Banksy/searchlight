@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, collections::{HashMap, hash_map::DefaultHasher}};
 
-use log::info;
+use log::debug;
 
 use crate::searchlight::config::SearchlightConfig;
 
@@ -116,7 +116,7 @@ impl AcTableBuilder {
 			})
 			.collect();
 
-		info!("AC Table: {:?}", table);
+		debug!("AC Table: {:?}", table);
 
 		AcTable { table, max_pat_len: self.max_pat_len }
 	}

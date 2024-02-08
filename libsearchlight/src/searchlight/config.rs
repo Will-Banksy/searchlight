@@ -28,7 +28,7 @@ pub struct FileType {
 #[serde(rename_all = "lowercase")]
 pub enum FileTypeId {
 	Unknown,
-	Jpg,
+	Jpeg,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
