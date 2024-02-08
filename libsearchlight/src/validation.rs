@@ -1,10 +1,11 @@
 pub mod jpeg;
+pub mod png;
 
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 
-use self::jpeg::JpegValidator;
+use self::{jpeg::JpegValidator, png::PngValidator};
 
 // TODO: Modify to allow for validating a reconstructed fragmented file (e.g. by taking a slice of slices of the file data)
 pub trait FileValidator {
@@ -52,7 +53,11 @@ impl DelegatingValidator {
 				(
 					FileTypeId::Jpeg,
 					Box::new(JpegValidator::new()) as Box<dyn FileValidator>
-				)
+				),
+				(
+					FileTypeId::Png,
+					Box::new(PngValidator::new()) as Box<dyn FileValidator>
+				),
 			].into()
 		}
 	}

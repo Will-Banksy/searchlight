@@ -10,12 +10,11 @@ const JPEG_SOF0: u8 = 0xc0;
 const JPEG_SOF2: u8 = 0xc2;
 const JPEG_SOS: u8 = 0xda;
 
-pub struct JpegValidator {
-}
+pub struct JpegValidator;
 
 impl JpegValidator {
 	pub fn new() -> Self {
-		JpegValidator {}
+		JpegValidator
 	}
 }
 

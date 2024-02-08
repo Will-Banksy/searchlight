@@ -29,6 +29,7 @@ pub struct FileType {
 pub enum FileTypeId {
 	Unknown,
 	Jpeg,
+	Png
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
