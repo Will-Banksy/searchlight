@@ -188,7 +188,7 @@
 			"args": [
 				"-v",
 				"-i",
-				"test_data/nps-2009-canon2-gen6.raw"
+				"test_data/png_image.raw"
 			],
 			"cwd": "${workspaceFolder}"
 		},

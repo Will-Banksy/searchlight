@@ -27,6 +27,22 @@ pub enum FileValidationType {
 	Unanalysed
 }
 
+impl FileValidationType {
+	pub fn worst_of(self, other: FileValidationType) -> FileValidationType {
+		if self == FileValidationType::Correct {
+			other
+		} else if self == FileValidationType::Partial && other != FileValidationType::Correct {
+			other
+		} else if self == FileValidationType::FormatError && other != FileValidationType::Correct && other != FileValidationType::Partial {
+			other
+		} else if self == FileValidationType::Corrupted && other != FileValidationType::Correct && other != FileValidationType::Partial && other != FileValidationType::FormatError {
+			other
+		} else {
+			self
+		}
+	}
+}
+
 impl Display for FileValidationType {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", match self {

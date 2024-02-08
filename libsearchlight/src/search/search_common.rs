@@ -185,19 +185,6 @@ impl AcTable {
 			}
 		}
 
-		// TODO: Remove debugging code
-		// {
-		// 	let arr2d: Vec<&[u32]> = accum.chunks(256).collect();
-
-		// 	for (row_idx, row) in arr2d.iter().enumerate() {
-		// 		for (elem_idx, elem) in row.iter().enumerate() {
-		// 			if *elem != 0 {
-		// 				println!("elem at row {row_idx}, column {elem_idx} is {elem}");
-		// 			}
-		// 		}
-		// 	}
-		// }
-
 		accum
 	}
 }

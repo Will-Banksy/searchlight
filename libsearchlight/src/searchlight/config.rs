@@ -9,7 +9,7 @@ pub struct SearchlightConfig {
 }
 
 #[derive(Deserialize, Debug, PartialEq, Default)]
-pub struct FileType {
+pub struct FileType { // TODO: Add minimum length, and use that minimum length when pairing
 	pub headers: Vec<Vec<u8>>,
 	#[serde(default)]
 	pub footers: Vec<Vec<u8>>,

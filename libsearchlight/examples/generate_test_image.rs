@@ -26,6 +26,7 @@ fn main() {
 		output_file.write(&rand_data[0..amt_rand as usize]).unwrap();
 
 		// Read the current directory entry (if it is a file) and appends that data to the output file
+		// TODO: Introduce fragmentation, partially erase files, etc. for some more variation
 		let dir_entry = dir_entry.unwrap();
 		if dir_entry.metadata().unwrap().is_file() {
 			let file_data = fs::read(dir_entry.path()).unwrap();
