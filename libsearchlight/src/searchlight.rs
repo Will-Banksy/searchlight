@@ -87,6 +87,7 @@ impl Searchlight {
 			let mut matches = Vec::new();
 			let mut result_fut: Option<SearchFuture> = None;
 
+			// TODO: Perhaps use a by-block loading method when doing the sequential search and then go back to the memory map for the random-access carving
 			for (i, window) in mmap.gapped_windows(block_size, block_size - max_pat_len).enumerate() {
 				// This probably doesn't do a lot but there seems no reason to not have it
 				#[cfg(target_arch = "x86_64")]

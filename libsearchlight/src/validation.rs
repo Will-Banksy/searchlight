@@ -1,5 +1,6 @@
 pub mod jpeg;
 pub mod png;
+pub mod zip;
 
 use std::{collections::HashMap, fmt::Display};
 
