@@ -5,7 +5,7 @@ use log::warn;
 
 use crate::searchlight::config::{FileType, PairingStrategy, SearchlightConfig};
 
-use super::{Match, match_id_hash_slice};
+use super::{match_id_hash_slice_u16, Match};
 
 #[derive(PartialEq)]
 pub struct MatchPair<'a> {
@@ -51,7 +51,7 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 	// Process the config to produce a mapping from match ids to indices of filetypes, with whether the match id corresponds to a header or footer
 	for i in 0..(config.file_types.len()) {
 		for header in &config.file_types[i].headers {
-			let id = match_id_hash_slice(&header);
+			let id = match_id_hash_slice_u16(&header);
 			if id_ftype_map.contains_key(&id) {
 				warn!(
 					"Collision detected, matches of this byte sequence may be misattributed (header: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
@@ -62,7 +62,7 @@ pub fn preprocess_config<'a>(config: &'a SearchlightConfig) -> HashMap<u64, (usi
 			id_ftype_map.insert(id, (i, &config.file_types[i], MatchPart::Header));
 		}
 		for footer in &config.file_types[i].footers {
-			let id = match_id_hash_slice(&footer);
+			let id = match_id_hash_slice_u16(&footer);
 			if id_ftype_map.contains_key(&id) {
 				warn!(
 					"Collision detected, matches of this byte sequence may be misattributed (footer: {:?} in type {}) - All byte sequences used in headers and footers should be unique",
@@ -514,8 +514,8 @@ mod test {
 		let config = SearchlightConfig {
 			file_types: vec![
 				FileType {
-					headers: vec![ "ft0_header".bytes().collect() ],
-					footers: vec![ "ft0_footer".bytes().collect() ],
+					headers: vec![ "ft0_header".into() ],
+					footers: vec![ "ft0_footer".into() ],
 					extension: Some("ft0".to_string()),
 					pairing: PairingStrategy::PairNext,
 					max_len: Some(10),
@@ -523,8 +523,8 @@ mod test {
 					..Default::default()
 				},
 				FileType {
-					headers: vec![ "ft1_header".bytes().collect() ],
-					footers: vec![ "ft1_footer".bytes().collect() ],
+					headers: vec![ "ft1_header".into() ],
+					footers: vec![ "ft1_footer".into() ],
 					extension: Some("ft1".to_string()),
 					pairing: PairingStrategy::PairNext,
 					max_len: Some(10),
@@ -532,8 +532,8 @@ mod test {
 					..Default::default()
 				},
 				FileType {
-					headers: vec![ "ft2_header".bytes().collect() ],
-					footers: vec![ "ft2_footer".bytes().collect() ],
+					headers: vec![ "ft2_header".into() ],
+					footers: vec![ "ft2_footer".into() ],
 					extension: Some("ft2".to_string()),
 					pairing: PairingStrategy::PairLast,
 					max_len: Some(10),
@@ -541,8 +541,8 @@ mod test {
 					..Default::default()
 				},
 				FileType {
-					headers: vec![ "ft3_header".bytes().collect() ],
-					footers: vec![ "ft3_footer".bytes().collect() ],
+					headers: vec![ "ft3_header".into() ],
+					footers: vec![ "ft3_footer".into() ],
 					extension: Some("ft3".to_string()),
 					pairing: PairingStrategy::PairLast,
 					max_len: Some(11),
@@ -550,8 +550,8 @@ mod test {
 					..Default::default()
 				},
 				FileType {
-					headers: vec![ "ft4_header".bytes().collect() ],
-					footers: vec![ "ft4_footer".bytes().collect() ],
+					headers: vec![ "ft4_header".into() ],
+					footers: vec![ "ft4_footer".into() ],
 					extension: Some("ft4".to_string()),
 					pairing: PairingStrategy::PairNext,
 					max_len: Some(10),
@@ -559,8 +559,8 @@ mod test {
 					..Default::default()
 				},
 				FileType {
-					headers: vec![ "ft5_header".bytes().collect() ],
-					footers: vec![ "ft5_footer".bytes().collect() ],
+					headers: vec![ "ft5_header".into() ],
+					footers: vec![ "ft5_footer".into() ],
 					extension: Some("ft5".to_string()),
 					pairing: PairingStrategy::PairLast,
 					max_len: Some(10),

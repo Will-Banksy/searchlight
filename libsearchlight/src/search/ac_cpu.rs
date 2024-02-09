@@ -1,6 +1,6 @@
 use crate::error::Error;
 
-use super::{search_common::AcTable, SearchFuture, match_id_hash_init, match_id_hash_add, Match, Searcher};
+use super::{match_id_hash_add_u16, match_id_hash_init, search_common::AcTable, Match, SearchFuture, Searcher};
 
 struct AcState {
 	state: u32,
@@ -41,7 +41,7 @@ impl Searcher for AcCpu {
 			while j < self.states.len() {
 				if let Some(elem) = self.table.lookup(self.states[j].state, data[i]) {
 					self.states[j].state = elem.next_state;
-					self.states[j].id = match_id_hash_add(self.states[j].id, data[i]);
+					self.states[j].id = match_id_hash_add_u16(self.states[j].id, elem.value);
 				} else if self.table.table[self.states[j].state as usize].is_empty() {
 					matches.push(Match {
 						id: self.states[j].id,
@@ -61,7 +61,7 @@ impl Searcher for AcCpu {
 			if let Some(elem) = self.table.lookup(0, data[i]) {
 				self.states.push(AcState {
 					state: elem.next_state,
-					id: match_id_hash_add(match_id_hash_init(), data[i]),
+					id: match_id_hash_add_u16(match_id_hash_init(), elem.value),
 					start_idx: i + data_offset as usize
 				})
 			}
@@ -75,7 +75,7 @@ impl Searcher for AcCpu {
 
 #[cfg(test)]
 mod test {
-	use crate::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, ac_cpu::AcCpu, Searcher};
+	use crate::{search::{ac_cpu::AcCpu, match_id_hash_slice_u16, search_common::AcTableBuilder, Match, Searcher}, searchlight::config::MatchString};
 
 	#[test]
 	fn test_ac_cpu_single() {
@@ -86,8 +86,8 @@ mod test {
 			5, 9, 1, 2
 		];
 
-		let pattern = &[1, 2, 3];
-		let pattern_id = match_id_hash_slice(pattern);
+		let pattern = &[1u16, 2, 3];
+		let pattern_id = match_id_hash_slice_u16(pattern);
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = AcCpu::new(pfac_table);
@@ -115,11 +115,48 @@ mod test {
 	}
 
 	#[test]
+	fn test_ac_cpu_single_match() {
+		let buffer = [
+			1, 2, 3, 8, 4,
+			1, 2, 3, 1, 1,
+			2, 1, 2, 3, 0,
+			5, 9, 1, 2
+		];
+
+		let pattern = &MatchString::from("\\x01\\x02\\x03.");
+		let pattern_id = match_id_hash_slice_u16(pattern);
+
+		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
+		let mut ac = AcCpu::new(pfac_table);
+		let matches = ac.search(&buffer, 0).unwrap();
+
+		let expected = vec![
+			Match {
+				id: pattern_id,
+				start_idx: 0,
+				end_idx: 3
+			},
+			Match {
+				id: pattern_id,
+				start_idx: 5,
+				end_idx: 8
+			},
+			Match {
+				id: pattern_id,
+				start_idx: 11,
+				end_idx: 14
+			}
+		];
+
+		assert_eq!(matches.wait().unwrap(), expected);
+	}
+
+	#[test]
 	fn test_ac_cpu_multi() {
 		let buffer = [ 1, 2, 3, 4, 5, 8, 4, 1, 2, 3, 4, 5, 1, 1, 2, 1, 2, 3, 4, 5, 0, 5, 9, 1, 2 ];
 
-		let pattern = &[ 1, 2, 3, 4, 5 ];
-		let pattern_id = match_id_hash_slice(pattern);
+		let pattern = &[ 1u16, 2, 3, 4, 5 ];
+		let pattern_id = match_id_hash_slice_u16(pattern);
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = AcCpu::new(pfac_table);

@@ -424,7 +424,7 @@ impl Searcher for PfacGpu {
 
 #[cfg(test)]
 mod test {
-	use crate::search::{Match, search_common::AcTableBuilder, match_id_hash_slice, pfac_gpu::PfacGpu, Searcher};
+	use crate::{search::{match_id_hash_slice_u16, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Match, Searcher}, searchlight::config::MatchString};
 
 	#[test]
 	fn test_pfac_gpu_single() {
@@ -435,8 +435,8 @@ mod test {
 			5, 9, 1, 2
 		];
 
-		let pattern = &[1, 2, 3];
-		let pattern_id = match_id_hash_slice(pattern);
+		let pattern = &[1u16, 2, 3];
+		let pattern_id = match_id_hash_slice_u16(pattern);
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = PfacGpu::new(pfac_table).unwrap();
@@ -464,11 +464,48 @@ mod test {
 	}
 
 	#[test]
+	fn test_pfac_gpu_single_match() {
+		let buffer = [
+			1, 2, 3, 8, 4,
+			1, 2, 3, 1, 1,
+			2, 1, 2, 3, 0,
+			5, 9, 1, 2
+		];
+
+		let pattern = &MatchString::from("\\x01\\x02\\x03.");
+		let pattern_id = match_id_hash_slice_u16(pattern);
+
+		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
+		let mut ac = PfacGpu::new(pfac_table).unwrap();
+		let matches = ac.search(&buffer, 0).unwrap();
+
+		let expected = vec![
+			Match {
+				id: pattern_id,
+				start_idx: 0,
+				end_idx: 3
+			},
+			Match {
+				id: pattern_id,
+				start_idx: 5,
+				end_idx: 8
+			},
+			Match {
+				id: pattern_id,
+				start_idx: 11,
+				end_idx: 14
+			}
+		];
+
+		assert_eq!(matches.wait().unwrap(), expected);
+	}
+
+	#[test]
 	fn test_pfac_gpu_multi() {
 		let buffer = [ 1, 2, 3, 4, 5, 8, 4, 1, 2, 3, 4, 5, 1, 1, 2, 1, 2, 3, 4, 5, 0, 5, 9, 1, 2 ];
 
-		let pattern = &[ 1, 2, 3, 4, 5 ];
-		let pattern_id = match_id_hash_slice(pattern);
+		let pattern = &[ 1u16, 2, 3, 4, 5 ];
+		let pattern_id = match_id_hash_slice_u16(pattern);
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = PfacGpu::new(pfac_table).unwrap();

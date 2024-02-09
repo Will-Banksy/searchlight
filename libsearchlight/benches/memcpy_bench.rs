@@ -5,7 +5,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, Bencher, Criterion, 
 criterion_group!(benches, memcpy_bench);
 criterion_main!(benches);
 
-const BENCH_FILE: &'static str = "test_data/ubnist1.gen3.raw";
+const BENCH_FILE: &'static str = "../test_data/ubnist1.gen3.raw";
 
 fn memcpy_bench(c: &mut Criterion) {
 	let mut group = c.benchmark_group("memcpy");

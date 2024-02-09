@@ -133,12 +133,28 @@ pub fn match_id_hash_add(hash: u64, new_value: u8) -> u64 {
 	(hash ^ new_value as u64).wrapping_mul(FNV_PRIME)
 }
 
+/// Takes the current FNV-1a hash value, adds a new value into the hash, and returns the new hash. 16-bit version
+pub fn match_id_hash_add_u16(hash: u64, new_value: u16) -> u64 {
+	(hash ^ new_value as u64).wrapping_mul(FNV_PRIME)
+}
+
 /// Calculates the FNV-1a hash of the slice using `match_id_hash_init` and `match_id_hash_add`
 pub fn match_id_hash_slice(slice: &[u8]) -> u64 {
 	let mut hash = match_id_hash_init();
 
 	for n in slice {
 		hash = match_id_hash_add(hash, *n);
+	}
+
+	hash
+}
+
+/// Calculates the FNV-1a hash of the slice using `match_id_hash_init` and `match_id_hash_add`. 16-bit version
+pub fn match_id_hash_slice_u16(slice: &[u16]) -> u64 {
+	let mut hash = match_id_hash_init();
+
+	for n in slice {
+		hash = match_id_hash_add_u16(hash, *n);
 	}
 
 	hash
@@ -186,6 +202,8 @@ mod test {
 	fn test_clmul() {
 		assert_eq!(clmul(FNV_OFFSET_BASIS, FNV_PRIME), (FNV_OFFSET_BASIS as u128 * FNV_PRIME as u128) as u64);
 	}
+
+	// TODO: Hash tests, in particular tests to prove the output of the 16-bit and 8-bit hash functions are identical
 
 	/// Runs the search impl across the test data in 1024*1024 byte windows, returning a map of window index to matches found in that window
 	#[cfg(feature = "big_tests")]

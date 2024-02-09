@@ -15,7 +15,7 @@ mod ir {
 	#[derive(Debug, PartialEq)]
 	pub struct ConnectionIR {
 		pub connecting_to_uuid: u32,
-		pub value: u8,
+		pub value: u16,
 	}
 }
 
@@ -32,7 +32,7 @@ pub struct AcTableBuilder {
 #[derive(Debug, Clone)]
 pub struct AcTableElem {
 	pub next_state: u32,
-	pub value: u8
+	pub value: u16
 }
 
 #[derive(Clone)]
@@ -61,23 +61,23 @@ impl AcTableBuilder {
 
 		for ft in &config.file_types {
 			for head in &ft.headers {
-				builder.add_pattern(&head);
+				builder.add_pattern(head);
 			}
 			for foot in &ft.footers {
-				builder.add_pattern(&foot);
+				builder.add_pattern(foot);
 			}
 		}
 
 		builder
 	}
 
-	pub fn with_pattern(mut self, pattern: &[u8]) -> Self {
+	pub fn with_pattern(mut self, pattern: &[u16]) -> Self {
 		self.add_pattern(pattern);
 
 		self
 	}
 
-	pub fn add_pattern(&mut self, pattern: &[u8]) {
+	pub fn add_pattern(&mut self, pattern: &[u16]) {
 		let mut node_idx = self.start_idx as usize;
 
 		for (i, b)  in pattern.iter().enumerate() {
@@ -124,7 +124,7 @@ impl AcTableBuilder {
 
 impl AcTable {
 	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&AcTableElem> {
-		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value)
+		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value as u16 || e.value == 0x8000)
 	}
 
 	pub fn num_rows(&self) -> usize {
@@ -132,43 +132,14 @@ impl AcTable {
 	}
 
 	pub fn indexable_columns(&self) -> usize {
-		256
+		257
 	}
 
-	/// Encodes the ac table into an array of u64 values, where each u64 contains, as the most significant u32, the state number, and the least significant u32, the value, prefixing each Vec with a u64 of the Vec's length.
-	/// Each row is resized to be the same length, so the resulting Vec can be indexed as (i * row_len, j) where i is the row index, and j is the column index.
+	/// Returns a 1D vector representation of a 2D array, with 256 columns (width) and a number of rows (height) equal to the number
+	/// of unique states, that can be obtained from calling `num_rows`. To get the next state from the table, where y is the current state
+	/// and x is the current value, lookup column x and row y.
 	///
-	/// Returns the u64 Vec, with the first element being the length of the rows
-	pub fn encode(&self) -> Vec<u64> {
-		// Compute the maximum row size, +1 for each row needs to indicate it's length
-		let rlen = self.table.iter().fold(0, |acc, elem| if elem.len() > acc { elem.len() } else { acc }) + 1;
-
-		let mut accum = vec![0; self.num_rows() * rlen];
-
-		let mut i = 0;
-		for row in &self.table {
-			let accum_idx = i * rlen;
-
-			// Encode the row by shifting each element's next state to the left 32 places and or'ing it with the element's value
-			let mut row_encoded: Vec<u64> = row.iter().map(|e| ((e.next_state as u64) << 32) | e.value as u64).collect();
-			row_encoded.insert(0, row_encoded.len() as u64);
-
-			// Write the encoded row to the corresponding range of positions in accum
-			let mut j = 0;
-			while j < (i + 1) * rlen && j < row_encoded.len() {
-				accum[accum_idx + j] = row_encoded[j];
-
-				j += 1;
-			}
-
-			i += 1;
-		}
-
-		accum.insert(0, rlen as u64);
-
-		accum
-	}
-
+	/// In the case of '.'s, or match alls, the last column in a row will contain the next state.
 	pub fn encode_indexable(&self) -> Vec<u32> {
 		let rlen = self.indexable_columns();
 
@@ -181,7 +152,11 @@ impl AcTable {
 				}
 			}
 			for elem in row {
-				accum[i * rlen + elem.value as usize] = elem.next_state;
+				if elem.value == 0x8000 {
+					accum[i * rlen + rlen - 1] = elem.next_state;
+				} else {
+					accum[i * rlen + elem.value as usize] = elem.next_state;
+				}
 			}
 		}
 
@@ -189,7 +164,7 @@ impl AcTable {
 	}
 }
 
-fn hash_suffix(suffix: &[u8]) -> u64 {
+fn hash_suffix(suffix: &[u16]) -> u64 {
 	let mut hasher = DefaultHasher::new();
 	suffix.hash(&mut hasher);
 	hasher.finish()
@@ -220,7 +195,7 @@ mod test {
 
 		println!("encoded len: {}", encoded.len());
 
-		let arr2d: Vec<&[u32]> = encoded.chunks(256).collect();
+		let arr2d: Vec<&[u32]> = encoded.chunks(257).collect();
 
 		for (row_idx, row) in arr2d.iter().enumerate() {
 			for (elem_idx, elem) in row.iter().enumerate() {
@@ -233,7 +208,7 @@ mod test {
 
 	#[test]
 	fn test_ir_gen() {
-		let patterns: [&[u8]; 4] = [ &[ 45, 32, 23, 97 ], &[ 87, 34, 12 ], &[ 87, 45, 12 ], &[ 29, 45, 32, 23, 97 ] ];
+		let patterns: [&[u16]; 4] = [ &[ 45, 32, 23, 97 ], &[ 87, 34, 12 ], &[ 87, 45, 12 ], &[ 29, 45, 32, 23, 97 ] ];
 
 		let mut pb = AcTableBuilder::new(true);
 

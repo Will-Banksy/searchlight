@@ -1,13 +1,13 @@
 use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, fs::File, hint::black_box};
 
 use criterion::{criterion_group, criterion_main, Criterion, Bencher, Throughput};
-use libsearchlight::{search::{search_common::AcTableBuilder, SearchFuture, ac_cpu::AcCpu, pfac_gpu::PfacGpu, Searcher}, utils::iter::ToGappedWindows};
+use libsearchlight::{search::{ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, SearchFuture, Searcher}, searchlight::config::MatchString, utils::iter::ToGappedWindows};
 
 criterion_group!(benches, search_bench);
 criterion_main!(benches);
 
-const BENCH_FILE: &'static str = "test_data/ubnist1.gen3.raw";
-const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ];
+const BENCH_FILE: &'static str = "../test_data/ubnist1.gen3.raw";
+const SEARCH_PATTERNS: &'static [&'static str] = &[ "\\x7f\\x45\\x4c\\x46" ];
 
 fn search_bench(c: &mut Criterion) {
 	let mut group = c.benchmark_group("search");
@@ -29,7 +29,7 @@ fn ac_cpu(b: &mut Bencher) {
 	b.iter_batched(|| {
 		let mut pfac_table = AcTableBuilder::new(true);
 		for pat in patterns {
-			pfac_table.add_pattern(pat);
+			pfac_table.add_pattern(&MatchString::from(*pat));
 		}
 		let pfac_table = pfac_table.build();
 		let ac = AcCpu::new(pfac_table);
@@ -47,7 +47,7 @@ fn pfac_gpu(b: &mut Bencher) {
 	b.iter_batched(|| {
 		let mut pfac_table = AcTableBuilder::new(true);
 		for pat in patterns {
-			pfac_table.add_pattern(pat);
+			pfac_table.add_pattern(&MatchString::from(*pat));
 		}
 		let pfac_table = pfac_table.build();
 		let ac = PfacGpu::new(pfac_table).unwrap();

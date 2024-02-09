@@ -134,7 +134,9 @@ void main() {
 
 		// Lookup the next state in the STT
 		uvec4 texel = imageLoad(table, ivec2(curr_val, state));
-		uint next_state = texel.r;
+		uvec4 dot_texel = imageLoad(table, ivec2(256, state));
+		bool choose_dot = texel.r == 0;
+		uint next_state = uint(choose_dot) * dot_texel.r + uint(!choose_dot) * texel.r;
 
 		if(next_state == 0xffffffff) {
 			// debugPrintfEXT("LocID %u / GlobID %u: wrote match at LocIdx %u / GlobIdx %u, offset = %u\n", gl_LocalInvocationID.x, gl_GlobalInvocationID.x, idx, gl_GlobalInvocationID.x + i, extra_info.offset);
@@ -144,7 +146,7 @@ void main() {
 			break;
 		} else if(next_state != 0) {
 			state = next_state;
-			id = match_id_hash_add(id, curr_val);
+			id = match_id_hash_add(id, uint(choose_dot) * 0x8000 + uint(!choose_dot) * curr_val);
 			// debugPrintfEXT("Moving on to state = %u, matched at idx = %u\n", next_state, idx);
 		} else {
 			// debugPrintfEXT("Fail @ val = %u, state = %u, idx = %u, cache_idx = %u\n", curr_val, state, idx, cache_idx);

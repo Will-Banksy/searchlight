@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use serde::Deserialize;
 
-use crate::error::Error;
+use crate::{error::Error, utils::str_parse::parse_match_str};
 
 #[derive(Deserialize, Debug)]
 pub struct SearchlightConfig {
@@ -10,9 +12,9 @@ pub struct SearchlightConfig {
 
 #[derive(Deserialize, Debug, PartialEq, Default)]
 pub struct FileType { // TODO: Add minimum length, and use that minimum length when pairing
-	pub headers: Vec<Vec<u8>>,
+	pub headers: Vec<MatchString>,
 	#[serde(default)]
-	pub footers: Vec<Vec<u8>>,
+	pub footers: Vec<MatchString>,
 	#[serde(default)]
 	pub extension: Option<String>,
 	#[serde(default)]
@@ -22,6 +24,36 @@ pub struct FileType { // TODO: Add minimum length, and use that minimum length w
 	pub max_len: Option<u64>,
 	#[serde(default)]
 	pub requires_footer: bool
+}
+
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(from = "String")]
+pub struct MatchString {
+	inner: Vec<u16>
+}
+
+impl From<String> for MatchString {
+	fn from(value: String) -> Self {
+		MatchString {
+			inner: parse_match_str(&value)
+		}
+	}
+}
+
+impl From<&str> for MatchString {
+	fn from(value: &str) -> Self {
+		MatchString {
+			inner: parse_match_str(&value)
+		}
+	}
+}
+
+impl Deref for MatchString {
+	type Target = Vec<u16>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.inner
+	}
 }
 
 #[derive(Deserialize, Debug, PartialEq, Eq, Hash)]

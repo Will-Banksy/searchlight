@@ -9,7 +9,7 @@ criterion_group!(benches, io_bench, io_uring_bench);
 criterion_group!(benches, io_bench);
 criterion_main!(benches);
 
-const BENCH_FILE: &'static str = "test_data/io_bench.dat";
+const BENCH_FILE: &'static str = "../test_data/io_bench.dat";
 
 #[cfg(target_os = "linux")]
 fn io_uring_bench(c: &mut Criterion) {
