@@ -65,7 +65,7 @@ impl FileValidator for JpegValidator {
 					}
 
 					break FileValidationInfo {
-						validation_type: FileValidationType::Corrupted,
+						validation_type: FileValidationType::Corrupt,
 						file_len: None
 					}
 				} else {

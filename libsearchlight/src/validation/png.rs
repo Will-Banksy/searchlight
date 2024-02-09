@@ -14,7 +14,7 @@ pub struct PngValidator;
 struct ChunkValidationInfo {
 	validation_type: FileValidationType,
 	data_length: u32,
-	chunk_type: u32
+	chunk_type: u32,
 }
 
 impl PngValidator {
@@ -25,6 +25,17 @@ impl PngValidator {
 	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, data: &[u8]) -> ChunkValidationInfo {
 		let chunk_data_len = u32::from_be_bytes(data[0..4].try_into().unwrap());
 		let chunk_type = u32::from_be_bytes(data[4..8].try_into().unwrap());
+
+		// In the PNG spec, a valid chunk type must have each byte match [a-zA-Z]
+		let chunk_type_valid = chunk_type.to_ne_bytes().iter().all(|&b| (b'a' <= b && b <= b'z') || (b'A' <= b && b <= b'Z'));
+
+		if !chunk_type_valid || chunk_data_len as usize + 12 >= data.len() {
+			return ChunkValidationInfo {
+				validation_type: FileValidationType::Unrecognised,
+				data_length: 0,
+				chunk_type
+			};
+		}
 
 		let crc = u32::from_be_bytes(data[(chunk_data_len as usize + 8)..(chunk_data_len as usize + 12)].try_into().unwrap());
 
@@ -64,7 +75,7 @@ impl PngValidator {
 				};
 
 				ChunkValidationInfo {
-					validation_type: if spec_conformant && chunk_intact { FileValidationType::Correct } else if chunk_intact { FileValidationType::FormatError } else { FileValidationType::Corrupted },
+					validation_type: if spec_conformant && chunk_intact { FileValidationType::Correct } else if chunk_intact { FileValidationType::FormatError } else { FileValidationType::Corrupt },
 					data_length: chunk_data_len,
 					chunk_type
 				}
@@ -73,14 +84,14 @@ impl PngValidator {
 				let spec_conformant = chunk_data_len % 3 == 0;
 
 				ChunkValidationInfo {
-					validation_type: if spec_conformant && chunk_intact { FileValidationType::Correct } else if chunk_intact { FileValidationType::FormatError } else { FileValidationType::Corrupted },
+					validation_type: if spec_conformant && chunk_intact { FileValidationType::Correct } else if chunk_intact { FileValidationType::FormatError } else { FileValidationType::Corrupt },
 					data_length: chunk_data_len,
 					chunk_type
 				}
 			}
 			_ => {
 				ChunkValidationInfo {
-					validation_type: if chunk_intact { FileValidationType::Correct } else { FileValidationType::Corrupted },
+					validation_type: if chunk_intact { FileValidationType::Correct } else { FileValidationType::Corrupt },
 					data_length: chunk_data_len,
 					chunk_type
 				}
@@ -111,6 +122,13 @@ impl FileValidator for PngValidator {
 			let chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data[chunk_idx..]);
 
 			worst_chunk_validation = worst_chunk_validation.worst_of(chunk_info.validation_type);
+
+			if worst_chunk_validation == FileValidationType::Unrecognised {
+				break FileValidationInfo {
+					validation_type: FileValidationType::Partial,
+					file_len: Some(chunk_idx as u64 - file_match.start_idx + 12)
+				}
+			}
 
 			match chunk_info.chunk_type {
 				PNG_IHDR => {
@@ -150,9 +168,9 @@ impl FileValidator for PngValidator {
 			} else {
 				file_data.len()
 			};
-			if chunk_idx >= max_idx {
+			if (chunk_idx + 12) >= max_idx {
 				break FileValidationInfo {
-					validation_type: FileValidationType::Corrupted,
+					validation_type: FileValidationType::Corrupt,
 					file_len: None
 				}
 			}

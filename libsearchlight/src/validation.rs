@@ -22,7 +22,7 @@ pub enum FileValidationType {
 	Correct,
 	Partial,
 	FormatError,
-	Corrupted,
+	Corrupt,
 	Unrecognised,
 	Unanalysed
 }
@@ -35,7 +35,7 @@ impl FileValidationType {
 			other
 		} else if self == FileValidationType::FormatError && other != FileValidationType::Correct && other != FileValidationType::Partial {
 			other
-		} else if self == FileValidationType::Corrupted && other != FileValidationType::Correct && other != FileValidationType::Partial && other != FileValidationType::FormatError {
+		} else if self == FileValidationType::Corrupt && other != FileValidationType::Correct && other != FileValidationType::Partial && other != FileValidationType::FormatError {
 			other
 		} else {
 			self
@@ -49,7 +49,7 @@ impl Display for FileValidationType {
 			FileValidationType::Correct=>"correct",
 			FileValidationType::Partial => "partial",
 			FileValidationType::FormatError => "format_error",
-			FileValidationType::Corrupted => "corrupted",
+			FileValidationType::Corrupt => "corrupted",
 			FileValidationType::Unrecognised => "unrecognised",
 			FileValidationType::Unanalysed => "unanalysed",
 		})
