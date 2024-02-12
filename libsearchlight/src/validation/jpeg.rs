@@ -45,7 +45,8 @@ impl FileValidator for JpegValidator {
 					// If any of APPn and SOFn segments haven't been seen though return Format Error
 					break FileValidationInfo {
 						validation_type: if seen_appn && seen_sofn { FileValidationType::Correct } else { FileValidationType::FormatError },
-						file_len: Some((i - start) as u64 + 2)
+						file_len: Some((i - start) as u64 + 2),
+						file_offset: None
 					}
 				} else if file_data[i + 1] == JPEG_SOS {
 					// Helpfully, the SOS marker doesn't have the length right after it, it is just immediately followed by the entropy-coded data
@@ -66,7 +67,8 @@ impl FileValidator for JpegValidator {
 
 					break FileValidationInfo {
 						validation_type: FileValidationType::Corrupt,
-						file_len: None
+						file_len: None,
+						file_offset: None
 					}
 				} else {
 					if file_data[i + 1] == JPEG_APP0 || file_data[i + 1] == JPEG_APP1 {
@@ -90,12 +92,14 @@ impl FileValidator for JpegValidator {
 							Some((i - start) as u64)
 						} else {
 							None
-						}
+						},
+						file_offset: None
 					};
 				} else {
 					break FileValidationInfo {
 						validation_type: FileValidationType::Unrecognised,
-						file_len: None
+						file_len: None,
+						file_offset: None
 					}
 				}
 			}

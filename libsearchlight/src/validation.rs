@@ -9,6 +9,10 @@ use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 use self::{jpeg::JpegValidator, png::PngValidator};
 
 // TODO: Modify to allow for validating a reconstructed fragmented file (e.g. by taking a slice of slices of the file data)
+// NOTE: Could I get the validate impls to basically perform all the carving? They could just return an array of slices that are then written to the appropriate files
+//       This may involve duplication of work though - But it should be fairly minimal tbh. I could maybe use some classification process to aid the validation, such
+//       as the calculation of Shannon entropy for sectors/clusters, because JPEG image data is usually quite high entropy and so finding low entropy data in the middle
+//       of that could indicate fragmentation and help with finding the other fragments
 pub trait FileValidator {
 	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo;
 }
@@ -16,6 +20,7 @@ pub trait FileValidator {
 pub struct FileValidationInfo {
 	pub validation_type: FileValidationType,
 	pub file_len: Option<u64>,
+	pub file_offset: Option<u64>
 }
 
 #[derive(Debug, PartialEq)]
@@ -87,7 +92,8 @@ impl FileValidator for DelegatingValidator {
 		} else {
 			FileValidationInfo {
 				validation_type: FileValidationType::Unanalysed,
-				file_len: None
+				file_len: None,
+				file_offset: None
 			}
 		}
 	}

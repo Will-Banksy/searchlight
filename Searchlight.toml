@@ -13,3 +13,12 @@ footer = [ '\x49\x45\x4e\x44\xae\x42\x60\x82' ]
 max_len = 10485760
 pairing = "next"
 type_id = "png"
+
+[[file_type]]
+extension = "zip"
+headers = [ '\x50\x4B\x03\x04' ]
+footers = [ '\x50\x4B\x05\x06' ]
+max_len = 10485760
+requires_footer = true
+pairing = "last"
+# type_id = "zip"

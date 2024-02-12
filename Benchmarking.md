@@ -68,7 +68,7 @@ io/direct
 
 Each read block was looped through, passing each byte through a black_box. These throughput scores, showing speeds slower than the memcpy benchmark, show that, at least on the tested-on system, that drive I/O is not a single bottleneck for operations slower than a sequential, single-threaded, non-SIMD read of the entire block. Memory copies are very fast in comparison, as there are many optimisations and tricks available to optimise them.
 
-The io/mmap benchmark here is faster than the rest, but within the drive read limit. It can be assumed this is due to caching, but it bottlenecked by the sequential read.
+The io/mmap benchmark here is faster than the rest, but within the drive read limit. It can be assumed this is due to caching, but is bottlenecked by the sequential read.
 
 io/filebuf
 - time:   [3.5759 s 3.6031 s 3.6402 s]
@@ -110,8 +110,7 @@ Each benchmark is run 20 times - 20 samples. The results in the [] are the confi
 
 See benches/search_bench.rs for the benchmark file.
 
-Of note is that profiling the benchmark case for pfac_gpu showed that memory copies were where the CPU spent ~73% of its time - Optimising or circumventing these copies, if possible, will have
-significant performance impact.
+Of note is that profiling the benchmark case for pfac_gpu showed that memory copies were where the CPU spent ~73% of its time - Optimising or circumventing these copies, if possible, will have significant performance impact.
 
 search/pfac_gpu
 - time:   [578.90 ms 580.43 ms 581.98 ms]
