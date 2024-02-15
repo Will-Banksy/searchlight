@@ -6,7 +6,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 
-use self::{jpeg::JpegValidator, png::PngValidator};
+use self::{jpeg::JpegValidator, png::PngValidator, zip::ZipValidator};
 
 // TODO: Modify to allow for validating a reconstructed fragmented file (e.g. by taking a slice of slices of the file data)
 // NOTE: Could I get the validate impls to basically perform all the carving? They could just return an array of slices that are then written to the appropriate files
@@ -79,6 +79,10 @@ impl DelegatingValidator {
 				(
 					FileTypeId::Png,
 					Box::new(PngValidator::new()) as Box<dyn FileValidator>
+				),
+				(
+					FileTypeId::Zip,
+					Box::new(ZipValidator::new()) as Box<dyn FileValidator>
 				),
 			].into()
 		}

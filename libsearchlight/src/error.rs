@@ -84,7 +84,7 @@ macro_rules! impl_from_for_variant {
 pub enum Error {
 	#[cfg(feature = "gpu")]
 	VulkanError(VulkanError),
-	ConfigValidationError(String),
+	ConfigValidationError,
 	IoError(io::Error),
 	IoManagerError(IoManagerError), // TODO: Try and compress the amount of errors in IoManagerError (with custom std::io::Errors) and move them into here (see https://nrc.github.io/error-docs/error-design/error-type-design.html)
 }
@@ -94,7 +94,7 @@ impl Display for Error {
 		write!(f, "{}", match self {
 			#[cfg(feature = "gpu")]
 			Error::VulkanError(e) => e.to_string(),
-			Error::ConfigValidationError(msg) => msg.to_string(),
+			Error::ConfigValidationError => "Config validation error".to_string(),
 			Error::IoError(e) => e.to_string(),
 			Error::IoManagerError(e) => e.to_string(),
 		})

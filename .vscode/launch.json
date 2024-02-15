@@ -188,7 +188,7 @@
 			"args": [
 				"-v",
 				"-i",
-				"test_data/png_image.raw"
+				"test_data/zip_image.raw"
 			],
 			"cwd": "${workspaceFolder}"
 		},
