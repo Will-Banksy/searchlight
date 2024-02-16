@@ -138,7 +138,7 @@ impl Searchlight {
 				debug!("Potential file at {}-{} (type {:?}) validated as: {}, with len {:?}", pot_file.start_idx, pot_file.end_idx, pot_file.file_type.type_id, validation.validation_type, validation.file_len);
 
 				if validation.validation_type != FileValidationType::Unrecognised {
-					let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx);
+					let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx + 1);
 
 					// Create validation directory if it doesn't exist
 					fs::create_dir_all(format!("{}/{}", output_dir.as_ref(), validation.validation_type.to_string()))?;

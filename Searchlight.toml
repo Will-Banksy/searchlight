@@ -17,8 +17,8 @@ type_id = "png"
 [[file_type]]
 extension = "zip"
 headers = [ '\x50\x4B\x03\x04' ]
-footers = [ '\x50\x4B\x05\x06' ]
+footers = [ '\x50\x4B\x05\x06...................' ]
 max_len = 10485760
 requires_footer = true
-pairing = "last"
+pairing = "next"
 type_id = "zip"

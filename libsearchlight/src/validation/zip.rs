@@ -6,7 +6,9 @@ const ZIP_LOCAL_FILE_HEADER_SIG: u32 = 0x04034b50;
 const ZIP_CENTRAL_DIR_HEADER_SIG: u32 = 0x02014b50;
 const ZIP_DATA_DESCRIPTOR_SIG: u32 = 0x08074b50;
 
+const ZIP_CENTRAL_DIR_HEADER_SIZE: usize = 46;
 const ZIP_LOCAL_FILE_HEADER_SIZE: usize = 30;
+
 const ZIP_DATA_DESCRIPTOR_FLAG: u16 = 3;
 
 pub struct ZipValidator;
@@ -37,6 +39,7 @@ impl ZipValidator {
 	/// For other segments segment_data_size is ignored.
 	fn validate_segment(data: &[u8], segment_data_size: usize) -> SegmentValidationInfo {
 		let signature = u32::from_le_bytes(data[0..4].try_into().unwrap());
+
 		if signature == ZIP_LOCAL_FILE_HEADER_SIG {
 			let flags = u16::from_le_bytes(data[6..8].try_into().unwrap());
 
@@ -80,7 +83,7 @@ impl ZipValidator {
 
 			if compressed_size != 0 {
 				let file_data = &data[next_chunk_offset..(next_chunk_offset + compressed_size as usize)];
-				let file_data_crc = crc32fast::hash(file_data); // TODO: Test that crc32fast uses the same CRC32 variant as ZIP
+				let file_data_crc = crc32fast::hash(file_data); // NOTE: No errors have been come across so far using crc32fast, so it apparently is the same that is used in ZIP, yay
 
 				if crc != file_data_crc {
 					data_corrupt = true;
@@ -114,13 +117,13 @@ impl ZipValidator {
 
 			SegmentValidationInfo {
 				validation_type: FileValidationType::Correct,
-				segment_size: Some(file_name_len + extra_field_len + comment_len),
+				segment_size: Some(file_name_len + extra_field_len + comment_len + ZIP_CENTRAL_DIR_HEADER_SIZE),
 				decoded_file_segment: Some(SegmentInfo {
 					offset: file_seg_header_offset as usize,
 					data_size: file_seg_compressed_size as usize,
 				})
 			}
-		} else { // TODO: Different segments
+		} else {
 			SegmentValidationInfo {
 				validation_type: FileValidationType::Unrecognised,
 				segment_size: None,
@@ -141,7 +144,7 @@ impl FileValidator for ZipValidator {
 		// incorrect output against some zip files. In particular, the following are not handled: ZIP64 files, ZIP multipart files, encrypted
 		// ZIP files, ZIP files containing digital signatures
 
-		let eocd_idx = file_match.end_idx as usize - 4;
+		let eocd_idx = file_match.end_idx as usize - 22;
 
 		if (eocd_idx + 22) >= file_data.len() {
 			return FileValidationInfo {
@@ -152,7 +155,7 @@ impl FileValidator for ZipValidator {
 		}
 
 		// Check the signature - we only want to handle the case of EOCD
-		let signature = &file_data[eocd_idx..file_match.end_idx as usize];
+		let signature = &file_data[eocd_idx..(eocd_idx + 4)];
 		assert_eq!(signature, &[ 0x50, 0x4b, 0x05, 0x06 ]);
 
 		// Get the disk number on which this EOCD record resides, and the disk number on which the central directory starts
@@ -215,12 +218,16 @@ impl FileValidator for ZipValidator {
 			let seg_validation = Self::validate_segment(&file_data[start_idx..], file_segment.data_size);
 
 			if seg_validation.validation_type == FileValidationType::Unrecognised {
-
+				continue;
 			}
 
 			worst_validation = worst_validation.worst_of(seg_validation.validation_type);
 		}
 
-		todo!()
+		FileValidationInfo {
+			validation_type: worst_validation,
+			file_len: None,
+			file_offset: None
+		}
 	}
 }
