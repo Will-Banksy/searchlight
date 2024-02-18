@@ -8,7 +8,7 @@ use std::{fs, io::Write, time::SystemTime};
 use args::Args;
 use clap::Parser;
 use libsearchlight::searchlight::Searchlight;
-use log::{error, info};
+use log::{debug, error};
 
 fn main() {
 	let mut args = Args::parse();
@@ -21,7 +21,7 @@ fn main() {
 		})
 		.init();
 
-	info!("args: {:?}", args);
+	debug!("args: {:?}", args);
 
 	args.config = Some(args.config.unwrap_or("Searchlight.toml".to_string()));
 
@@ -39,7 +39,7 @@ fn main() {
 		}
 	};
 
-	info!("config: {:?}", config);
+	debug!("config: {:?}", config);
 
 	let mut searchlight = match Searchlight::new(config) {
 		Ok(searchlight) => searchlight.with_file(&args.input),
@@ -49,11 +49,7 @@ fn main() {
 		}
 	};
 
-	searchlight.process_file(args.out_dir.unwrap_or(humantime::format_rfc3339(SystemTime::now()).to_string())).unwrap();
-
-	// let result = searchlight.open("path/to/image");
-	// if let Err(e) = result {
-	// 	sl_error!("main", format!("Failed to open disk image file {}", e));
-	// 	return;
-	// }
+	if let Err(e) = searchlight.process_file(args.out_dir.unwrap_or(humantime::format_rfc3339(SystemTime::now()).to_string())) {
+		error!("Failed to process file \"{}\": {}", args.input, e);
+	}
 }

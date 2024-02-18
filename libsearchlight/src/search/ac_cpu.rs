@@ -42,14 +42,16 @@ impl Searcher for AcCpu {
 				if let Some(elem) = self.table.lookup(self.states[j].state, data[i]) {
 					self.states[j].state = elem.next_state;
 					self.states[j].id = match_id_hash_add_u16(self.states[j].id, elem.value);
-				} else if self.table.table[self.states[j].state as usize].is_empty() {
-					matches.push(Match {
-						id: self.states[j].id,
-						start_idx: self.states[j].start_idx as u64,
-						end_idx: i as u64 + data_offset - 1
-					});
-					self.states.remove(j);
-					continue;
+
+					if self.table.table[self.states[j].state as usize].is_empty() {
+						matches.push(Match {
+							id: self.states[j].id,
+							start_idx: self.states[j].start_idx as u64,
+							end_idx: i as u64 + data_offset
+						});
+						self.states.remove(j);
+						continue;
+					}
 				} else {
 					self.states.remove(j);
 					continue;
@@ -83,7 +85,7 @@ mod test {
 			1, 2, 3, 8, 4,
 			1, 2, 3, 1, 1,
 			2, 1, 2, 3, 0,
-			5, 9, 1, 2
+			5, 9, 1, 2, 3,
 		];
 
 		let pattern = &[1u16, 2, 3];
@@ -108,6 +110,11 @@ mod test {
 				id: pattern_id,
 				start_idx: 11,
 				end_idx: 13
+			},
+			Match {
+				id: pattern_id,
+				start_idx: 17,
+				end_idx: 19
 			}
 		];
 

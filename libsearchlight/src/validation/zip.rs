@@ -83,7 +83,7 @@ impl ZipValidator {
 
 			if compressed_size != 0 {
 				let file_data = &data[next_chunk_offset..(next_chunk_offset + compressed_size as usize)];
-				let file_data_crc = crc32fast::hash(file_data); // NOTE: No errors have been come across so far using crc32fast, so it apparently is the same that is used in ZIP, yay
+				let file_data_crc = crc32fast::hash(file_data);
 
 				if crc != file_data_crc {
 					data_corrupt = true;
@@ -134,7 +134,7 @@ impl ZipValidator {
 }
 
 impl FileValidator for ZipValidator {
-	// Written using: https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt
+	// Written using: https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt and https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
 	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo {
 		// Since ZIP files may have multiple headers before 1 footer, and so we can only assume that 1 footer = 1 zip file, this match pair
 		// may well span the nth file in the zip to the EOCD signature. We can check the number of entries we come across however against
@@ -144,9 +144,9 @@ impl FileValidator for ZipValidator {
 		// incorrect output against some zip files. In particular, the following are not handled: ZIP64 files, ZIP multipart files, encrypted
 		// ZIP files, ZIP files containing digital signatures
 
-		let eocd_idx = file_match.end_idx as usize - 22;
+		let eocd_idx = file_match.end_idx as usize - file_match.file_type.footers[0].len() + 1;
 
-		if (eocd_idx + 22) >= file_data.len() {
+		if (eocd_idx + 22) > file_data.len() {
 			return FileValidationInfo {
 				validation_type: FileValidationType::Partial,
 				file_len: None,

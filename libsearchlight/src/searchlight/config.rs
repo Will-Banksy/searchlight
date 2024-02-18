@@ -148,11 +148,7 @@ impl SearchlightConfig {
 			detail_sb.push('(');
 
 			for detail_str in collision_set.iter().map(|(ftype_idx, part, _)| {
-				format!("{} in type {}", if *part == MatchPart::Header {
-					"header"
-				} else {
-					"footer"
-				}, self.file_types[*ftype_idx].extension.clone().unwrap_or("<no extension>".to_string()))
+				format!("{} in type {}", part, self.file_types[*ftype_idx].extension.clone().unwrap_or("<no extension>".to_string()))
 			}) {
 				if !first {
 					detail_sb.push_str(", ");

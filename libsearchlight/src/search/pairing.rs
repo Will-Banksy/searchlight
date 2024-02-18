@@ -1,5 +1,5 @@
 use core::fmt;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use log::warn;
 
@@ -42,6 +42,15 @@ impl<'a> MatchPair<'a> {
 pub enum MatchPart {
 	Header,
 	Footer
+}
+
+impl Display for MatchPart {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}", match self {
+			MatchPart::Header => "header",
+			MatchPart::Footer => "footer",
+		})
+	}
 }
 
 /// Processes the configured file types in `config` to produce a mapping from match ids to file types (preceded by the index of the file type into config) and match parts
@@ -99,10 +108,11 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: &HashMap<u64, (usize, &'
 	// TODO: Maybe add a config that changes how this function works to allow the configurability of scalpel - Currently all we're missing is excluding the footer bytes and allowing duplicate footer/headers
 	//       e.g. if we have 2 identical ids, the id_ftype_list will only contain an entry for 1 of the headers/footers that have that id... This may be difficult to allow with current design, all we know
 	//       about a match is it's id, and if a match maps to multiple different headers/footers that's difficult to handle - though maybe not impossible... But would it make sense? Tbh, I could maybe change
-	//       it so that each header/footer has a unique id associated with it... but that doesn't solve the problem as then you just end up with a sequence of bytes potentially mapping to multiple unique ids
-	// NOTE: Do we want to solve [ H0, H1, F0, F1 ] (all of the same file type) as [ H0F1, H1F0 ] (current) or [ H0F0, H1F1 ]? The current case is perhaps better tackled with PairLast, however it's also a more
-	//       likely way to reconstruct correctly? Files aren't often interleaved like that - but byte sequences that dont't correspond to real headers/footers might cause such situations, and fragmentation is
-	//       always something to consider
+	//       it so that each header/footer has a unique id associated with it... but that doesn't solve the problem as then you just end up with a sequence of bytes potentially mapping to multiple unique ids.
+	//       A possible solution would be to duplicate the match for all file types the match id maps to, and let the validation take care of filtering out non-matches
+	// NOTE: Cases of [ H0, H1, F0, F1 ] (all of the same file type) with pair next are handled as [ H0F0, H1F1 ] - This is 1. more intuitive for "pair next" and 2. means we solve [ H0, H1, F0 ] as [ H0F0 ] -
+	//       handling that as [ H1F0 ] seems wrong (or at least, unintuitive for "pair next"), and not the behaviour we'd want, most of the time - perhaps another pairing strategy can be added, "pair next inner"
+	//       or something where we take the alternative behaviour discussed here, e.g. handling [ H0, H1, F0, F1 ] as [ H0F1, H1F0 ] and [ H0, H1, F0 ] as [ H1F0 ]
 
 	let mut complete_matches = Vec::new();
 	// Map from FileType idx to list of Match idxs that are of that filetype. This list is referred to as a match stack for reasons although not being an actual stack
@@ -134,29 +144,32 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: &HashMap<u64, (usize, &'
 		} else { // If this is a footer...
 			if ftype.pairing == PairingStrategy::PairNext {
 				if let Some(match_stack) = match_tracker.get_mut(&ftype_idx) {
-					let mut pair_match_idx = None;
-					if let Some(mi) = match_stack.pop() { // If the top match index is for a file type that uses the PairNext pairing strategy, then match with that
+					let mut pair_idxs = None;
+					// Loop backwards through the match_stack, looking for the first occuring match that is in range of this footer
+					for (si, &mi) in match_stack.iter().enumerate().rev() {
 						let (_, mi_ftype, mi_match_part) = id_ftype_map.get(&matches[mi].id).expect(&format!("Match id {} was not found in id_ftype_map", matches[mi].id));
 						assert_eq!(*mi_match_part, MatchPart::Header);
 						assert_eq!(mi_ftype.pairing, ftype.pairing);
 
-						pair_match_idx = Some(mi);
+						// We only want to keep track of matches that are in range for matching, otherwise break cause we aren't going back in range once out
+						if in_range(&matches[mi], &matches[match_idx], ftype.max_len) {
+							pair_idxs = Some((si, mi));
+						} else {
+							break;
+						}
 					}
 
-					if let Some(pair_match_idx) = pair_match_idx {
-						// We only want to complete the match if the header and footer are in range of each other,
-						// but we want to remove those matches in either case cause they won't match anyway (probably...?)
-						if in_range(&matches[pair_match_idx], &matches[match_idx], ftype.max_len) {
-							complete_matches.push(
-								MatchPair::new(
-									ftype,
-									&matches[pair_match_idx],
-									&matches[match_idx]
-								)
-							);
-						}
+					if let Some((pair_stack_idx, pair_match_idx)) = pair_idxs {
+						complete_matches.push(
+							MatchPair::new(
+								ftype,
+								&matches[pair_match_idx],
+								&matches[match_idx]
+							)
+						);
 						matches_to_remove.push(pair_match_idx);
 						matches_to_remove.push(match_idx);
+						match_stack.remove(pair_stack_idx);
 					} else { // If there are no headers that occurred before this footer, or were otherwise paired with different footers...
 						matches_to_remove.push(match_idx); // Then simply remove this match
 					}
@@ -496,17 +509,34 @@ mod test {
 
 			vec![
 				// Case - Single PairNext that doesn't require a footer
-				Match { // 28
+				Match { // idx 28
 					id: match_ids[8],
 					start_idx: 140,
 					end_idx: 144
 				},
 
 				// Case - Single PairLast that doesn't require a footer
-				Match { // 28
+				Match { // idx 28
 					id: match_ids[10],
 					start_idx: 148,
 					end_idx: 152
+				},
+
+				// Case - PairNext with two headers that require footers
+				Match { // idx 29
+					id: match_ids[0],
+					start_idx: 157,
+					end_idx: 159
+				},
+				Match {
+					id: match_ids[0],
+					start_idx: 161,
+					end_idx: 163
+				},
+				Match { // idx 31
+					id: match_ids[1],
+					start_idx: 165,
+					end_idx: 166
 				},
 			]
 		];
@@ -592,12 +622,12 @@ mod test {
 			MatchPair {
 				file_type: &config.file_types[0],
 				start_idx: 27,
-				end_idx: 37,
+				end_idx: 34,
 			},
 			MatchPair {
 				file_type: &config.file_types[0],
 				start_idx: 30,
-				end_idx: 34,
+				end_idx: 37,
 			},
 			MatchPair {
 				file_type: &config.file_types[2],
@@ -643,6 +673,11 @@ mod test {
 				file_type: &config.file_types[5],
 				start_idx: 148,
 				end_idx: 158,
+			},
+			MatchPair {
+				file_type: &config.file_types[0],
+				start_idx: 157,
+				end_idx: 166,
 			},
 		];
 

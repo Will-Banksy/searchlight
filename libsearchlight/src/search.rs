@@ -78,7 +78,7 @@ impl Search {
 						};
 					}
 					Err(e) => {
-						warn!("Vulkan initialisation failed, falling back to CPU impl of Aho Corasick {:?}", e);
+						warn!("Vulkan initialisation failed, falling back to CPU impl of Aho Corasick: {:?}", e);
 					}
 				}
 			}

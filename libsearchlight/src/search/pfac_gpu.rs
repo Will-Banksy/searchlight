@@ -1,5 +1,5 @@
 // Paper on optimized GPGPU Aho-Corasick: https://ieeexplore.ieee.org/document/6680959
-// This is a paper from 2013 that claims it's GPU-accelerated AC strategy can get up to more than 127 GB/s throughput (on an Nvidia GeForce GTX 285 -
+// This is a paper from 2013 that claims it's GPU-accelerated AC strategy can get up to more than 127 Gbps throughput (on an Nvidia GeForce GTX 285 -
 // my RX 6950 XT, according to user benchmark, is 2041% faster)
 // Optimisations noted:
 // - They used a Deterministic Finite Automata with failure states
@@ -11,7 +11,7 @@
 //   was devised to eliminate/reduce shared memory bank conflicts
 //
 // Conclusions were that zero-copy transfer of input data to global memory combined with the shared memory approach (coalescing accesses and avoiding shared memory bank conflicts) were significant in
-// upping the throughput from 2-2.5 GB/s to 127 GB/s
+// upping the throughput from 2-2.5 Gbps to 127 Gpbs
 //
 // Noted by me however is that there is very little discussion of storing data from the compute kernel - i.e., storing matches
 //
@@ -21,6 +21,11 @@
 // - https://codereview.stackexchange.com/questions/259775/user-implementation-of-memcpy-where-to-optimize-further
 // - https://www.embedded.com/optimizing-memcpy-improves-speed/
 // - https://forums.raspberrypi.com/viewtopic.php?t=319315
+//
+// NOTE: Performance - The CUDA zero-copy transfer seems to be rather enormous in terms of optimisation - If I could get the GPU to copy to device from a host-side array that I can use as if it were a standard
+//   rust array, then that might bring similar performance improvements. It's maybe possible to do this actually - Vulkano buffers allow direct access to the underlying buffer as a slice,
+//   so I could perhaps use this slice as the buffer in which to store file data (read directly from storage into that buffer) and then I'd have to make sure that access is synchronised, but
+//   I could maybe use it as normal
 
 mod pfac_shaders {
 	pub mod ac {
@@ -432,7 +437,7 @@ mod test {
 			1, 2, 3, 8, 4,
 			1, 2, 3, 1, 1,
 			2, 1, 2, 3, 0,
-			5, 9, 1, 2
+			5, 9, 1, 2, 3
 		];
 
 		let pattern = &[1u16, 2, 3];
@@ -457,6 +462,11 @@ mod test {
 				id: pattern_id,
 				start_idx: 11,
 				end_idx: 13
+			},
+			Match {
+				id: pattern_id,
+				start_idx: 17,
+				end_idx: 19
 			}
 		];
 

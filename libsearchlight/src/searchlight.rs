@@ -2,7 +2,7 @@ pub mod config;
 
 use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::{self, File}};
 
-use log::{debug, info, log_enabled, Level};
+use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
 
 use crate::{error::Error, io::file_len, search::{pairing::{self, pair}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::iter::ToGappedWindows, validation::{DelegatingValidator, FileValidationType, FileValidator}};
@@ -50,7 +50,7 @@ impl Searchlight {
 
 				let file_len = file_len(&mut file)?;
 
-				debug!("Opened file {} (size: {} bytes)", &path, file_len);
+				info!("Opened file {} (size: {} bytes)", &path, file_len);
 
 				(
 					unsafe { MmapOptions::new().map(&file)? },
@@ -87,7 +87,8 @@ impl Searchlight {
 			let mut matches = Vec::new();
 			let mut result_fut: Option<SearchFuture> = None;
 
-			// TODO: Perhaps use a by-block loading method when doing the sequential search and then go back to the memory map for the random-access carving
+			// TODO: Perhaps use a by-block loading method when doing the sequential search and then go back to the memory map for the random-access carving.
+			//       If possible, when using the GPU search impl, write directly into the vulkan-allocated host-side buffer to avoid a memcpy
 			for (i, window) in mmap.gapped_windows(block_size, block_size - max_pat_len).enumerate() {
 				// This probably doesn't do a lot but there seems no reason to not have it
 				#[cfg(target_arch = "x86_64")]
@@ -123,6 +124,17 @@ impl Searchlight {
 			matches.sort_by_key(|m| m.start_idx);
 
 			let id_ftype_map = &pairing::preprocess_config(&self.config);
+
+			if log_enabled!(Level::Trace) {
+				for m in &matches {
+					if let Some((_, ftype, part)) = id_ftype_map.get(&m.id) {
+						trace!("Match at {}, type {} ({})", m.start_idx, ftype.extension.clone().unwrap_or("<no extension>".to_string()), part);
+					} else {
+						assert!(false);
+					}
+				}
+			}
+
 			let match_pairs = pair(&mut matches, id_ftype_map, true);
 
 			info!("Searching complete: Found {} potential files ({} individual matches)", match_pairs.len(), num_matches);
@@ -135,7 +147,7 @@ impl Searchlight {
 			for pot_file in match_pairs {
 				let validation = validator.validate(&mmap, &pot_file);
 
-				debug!("Potential file at {}-{} (type {:?}) validated as: {}, with len {:?}", pot_file.start_idx, pot_file.end_idx, pot_file.file_type.type_id, validation.validation_type, validation.file_len);
+				debug!("Potential file at {}-{} (type {:?}) validated as: {}, with len {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.file_len);
 
 				if validation.validation_type != FileValidationType::Unrecognised {
 					let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx + 1);
