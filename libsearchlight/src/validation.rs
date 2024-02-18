@@ -2,7 +2,7 @@ pub mod jpeg;
 pub mod png;
 pub mod zip;
 
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 
@@ -23,7 +23,8 @@ pub struct FileValidationInfo {
 	pub file_offset: Option<u64>
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum FileValidationType {
 	Correct,
 	Partial,
@@ -46,19 +47,6 @@ impl FileValidationType {
 		} else {
 			self
 		}
-	}
-}
-
-impl Display for FileValidationType {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", match self {
-			FileValidationType::Correct=>"correct",
-			FileValidationType::Partial => "partial",
-			FileValidationType::FormatError => "format_error",
-			FileValidationType::Corrupt => "corrupted",
-			FileValidationType::Unrecognised => "unrecognised",
-			FileValidationType::Unanalysed => "unanalysed",
-		})
 	}
 }
 

@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 use log::warn;
 
@@ -38,19 +38,11 @@ impl<'a> MatchPair<'a> {
 	}
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum MatchPart {
 	Header,
 	Footer
-}
-
-impl Display for MatchPart {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}", match self {
-			MatchPart::Header => "header",
-			MatchPart::Footer => "footer",
-		})
-	}
 }
 
 /// Processes the configured file types in `config` to produce a mapping from match ids to file types (preceded by the index of the file type into config) and match parts

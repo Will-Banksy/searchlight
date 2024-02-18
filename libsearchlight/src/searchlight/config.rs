@@ -74,8 +74,9 @@ impl Display for MatchString {
 	}
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Hash, strum::Display)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum FileTypeId {
 	Unknown,
 	Jpeg,
