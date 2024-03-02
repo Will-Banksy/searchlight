@@ -38,6 +38,3 @@ harness = false
 name = "search_bench"
 harness = false
 
-[[bench]]
-name = "memcpy_bench"
-harness = false
