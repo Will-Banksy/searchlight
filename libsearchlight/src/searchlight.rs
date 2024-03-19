@@ -1,6 +1,6 @@
 pub mod config;
 
-use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::{self, File}};
+use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::{self, File}, io::{IoSlice, Write}};
 
 use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
@@ -149,24 +149,37 @@ impl Searchlight {
 
 				// TODO: Should the type be reported differently to how it is in the TRACE logs for individual matches? It's technically different - Getting the type id instead of the file extension, and
 				//       so probably should be reported differently, but how? Keeping it lowercase I think
-				debug!("Potential file at {}-{} (type {}) validated as: {}, with len {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.file_len);
+				debug!("Potential file at {}-{} (type {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
 
 				if validation.validation_type != FileValidationType::Unrecognised {
-					let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx + 1);
+					// let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx + 1);
+
+					let fragments = if validation.fragments.is_empty() {
+						vec![ (pot_file.start_idx..(pot_file.end_idx + 1)) ]
+					} else {
+						validation.fragments
+					};
+
+					// Get the minimum index and maximum index of all fragments and designate them the start and end idxs
+					let start_idx = fragments.iter().min_by_key(|frag| frag.start).unwrap().start; // .map_or(pot_file.start_idx, |frag| frag.start);
+					let end_idx = fragments.iter().max_by_key(|frag| frag.end).unwrap().end; // .map_or(pot_file.end_idx + 1, |frag| frag.end);
 
 					// Create validation directory if it doesn't exist
 					fs::create_dir_all(format!("{}/{}", output_dir.as_ref(), validation.validation_type.to_string()))?;
 
-					// Write the file content into output directory
-					fs::write(
+					// Create the file with filename <start_idx>-<end_idx>.<extension>
+					let mut file = File::create(
 						format!("{}/{}/{}-{}.{}",
 							output_dir.as_ref(),
 							validation.validation_type,
-							pot_file.start_idx,
+							start_idx,
 							end_idx,
 							pot_file.file_type.extension.clone().unwrap_or("".to_string())
-						),
-						&mmap[pot_file.start_idx as usize..end_idx as usize]
+						)
+					)?;
+
+					file.write_vectored(
+						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start as usize..frag.end as usize])).collect::<Vec<IoSlice>>()
 					)?;
 				}
 			}

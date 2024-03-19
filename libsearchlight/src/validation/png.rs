@@ -126,8 +126,7 @@ impl FileValidator for PngValidator {
 			if worst_chunk_validation == FileValidationType::Unrecognised {
 				break FileValidationInfo {
 					validation_type: FileValidationType::Partial,
-					file_len: Some(chunk_idx as u64 - file_match.start_idx + 12),
-					file_offset: None
+					fragments: vec![ (file_match.start_idx..(chunk_idx as u64 - 12)) ]
 				}
 			}
 
@@ -155,8 +154,7 @@ impl FileValidator for PngValidator {
 
 					break FileValidationInfo {
 						validation_type: validation_type.worst_of(worst_chunk_validation),
-						file_len: Some(chunk_idx as u64 - file_match.start_idx + 12),
-						file_offset: None
+						fragments: vec![ (file_match.start_idx..(chunk_idx as u64 - 12)) ]
 					};
 				}
 				_ => ()
@@ -173,8 +171,7 @@ impl FileValidator for PngValidator {
 			if (chunk_idx + 12) >= max_idx {
 				break FileValidationInfo {
 					validation_type: FileValidationType::Corrupt,
-					file_len: None,
-					file_offset: None
+					..Default::default()
 				}
 			}
 		}

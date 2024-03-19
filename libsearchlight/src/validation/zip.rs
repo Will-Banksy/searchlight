@@ -149,8 +149,7 @@ impl FileValidator for ZipValidator {
 		if (eocd_idx + 22) > file_data.len() {
 			return FileValidationInfo {
 				validation_type: FileValidationType::Partial,
-				file_len: None,
-				file_offset: None
+				..Default::default()
 			}
 		}
 
@@ -166,8 +165,7 @@ impl FileValidator for ZipValidator {
 		if cd_diskno != cd_start_diskno || cd_diskno > 0 {
 			return FileValidationInfo {
 				validation_type: FileValidationType::Unanalysed,
-				file_len: None,
-				file_offset: None
+				..Default::default()
 			}
 		}
 
@@ -190,8 +188,7 @@ impl FileValidator for ZipValidator {
 			} else {
 				return FileValidationInfo {
 					validation_type: FileValidationType::Unrecognised,
-					file_len: None,
-					file_offset: None
+					..Default::default()
 				}
 			}
 
@@ -226,8 +223,7 @@ impl FileValidator for ZipValidator {
 
 		FileValidationInfo {
 			validation_type: worst_validation,
-			file_len: None,
-			file_offset: None
+			..Default::default()
 		}
 	}
 }
