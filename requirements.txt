@@ -1,0 +1,4 @@
+click==8.1.7
+multimethod==1.11.2
+numpy==1.26.4
+woodblock==0.1.7

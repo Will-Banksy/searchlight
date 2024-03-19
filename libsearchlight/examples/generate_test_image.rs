@@ -1,3 +1,5 @@
+// NOTE: This will be removed in the future, and test images will be generated with Woodblock instead (https://github.com/fkie-cad/woodblock)
+
 use std::{env::args, fs::{self, OpenOptions}, io::{Seek, SeekFrom, Write}};
 
 use tinyrand::{Rand, StdRand};

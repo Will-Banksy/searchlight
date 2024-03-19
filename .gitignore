@@ -3,3 +3,4 @@
 !/test_data/io_test.dat
 /*.svg
 /perf.*
+.venv
