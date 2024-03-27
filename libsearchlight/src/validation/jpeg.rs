@@ -2,7 +2,7 @@ use crate::search::pairing::MatchPair;
 
 use super::{FileValidationInfo, FileValidationType, FileValidator};
 
-const JPEG_SOI: u8 = 0xd8;
+// const JPEG_SOI: u8 = 0xd8;
 const JPEG_EOI: u8 = 0xd9;
 const JPEG_APP0: u8 = 0xe0;
 const JPEG_APP1: u8 = 0xe1;
@@ -33,10 +33,10 @@ impl FileValidator for JpegValidator {
 		'outer: loop {
 			// Check if we are on a marker - the current byte should be 0xff and the next byte should not be 0x00
 			if file_data[i] == 0xff && file_data[i + 1] != 0x00 {
-				// The SOI and EOI markers don't have lengths after them - I did see someone saying that the whole range 0xf0 to 0xf9 has no markers
+				// The SOI and EOI markers don't have lengths after them - I did see someone saying that the whole range 0xd0 to 0xd9 has no lengths
 				// (https://stackoverflow.com/questions/4585527/detect-end-of-file-for-jpg-images) but I can't find anything in any documentation to back
 				// that up. Then again I can't see anything in any documentation to say that segments necessarily have lengths
-				if file_data[i + 1] == JPEG_SOI || file_data[i + 1] == 0x01 {
+				if (file_data[i + 1] ^ 0xd0 < 0x09) || file_data[i + 1] == 0x01 {
 					// Move on to the next segment
 					i += 2;
 					continue;
@@ -60,7 +60,9 @@ impl FileValidator for JpegValidator {
 					};
 
 					for j in (i + 2)..scan_end {
-						if file_data[j] == 0xff && file_data[j + 1] != 0x00 {
+						// Need to skip 0xff00, 0xff01, 0xffd[0-8], according to this stackoverflow answer (https://stackoverflow.com/questions/4585527/detect-end-of-file-for-jpg-images)
+						// I haven't seen anything in the docs I've looked at to confirm this, but testing on images does seem to indicate that this is the correct approach
+						if file_data[j] == 0xff && file_data[j + 1] != 0x00 && file_data[j + 1] != 0x01 && (file_data[j + 1] ^ 0xd0 > 0x08) {
 							i = j;
 							continue 'outer;
 						}

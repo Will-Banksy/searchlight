@@ -1,6 +1,7 @@
 /target
 /test_data/*
 !/test_data/io_test.dat
+!/test_data/corpus
 /*.svg
 /perf.*
 .venv

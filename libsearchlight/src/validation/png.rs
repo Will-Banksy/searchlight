@@ -154,7 +154,7 @@ impl FileValidator for PngValidator {
 
 					break FileValidationInfo {
 						validation_type: validation_type.worst_of(worst_chunk_validation),
-						fragments: vec![ (file_match.start_idx..(chunk_idx as u64 - 12)) ]
+						fragments: vec![ (file_match.start_idx..(chunk_idx as u64 + 12)) ]
 					};
 				}
 				_ => ()
