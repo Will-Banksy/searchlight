@@ -29,8 +29,6 @@ In the test_data/corpus directory are some sample files for testing the tool wit
 
 All other files are authored by me.
 
-Less interestingly, just inside the test_data directory, io_test.dat is simply used in file reading unit tests.
-
 ## References
 
 - Garfinkel, S.L., Farrell, P., Roussev, V., and Dinolt, G. (2009) ‘Bringing science to digital forensics with standardized forensic corpora’, *Digital Investigation*, 6(1), pp. 2-11. doi: 10.1016/j.diin.2009.06.016.
