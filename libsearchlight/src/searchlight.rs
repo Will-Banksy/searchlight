@@ -5,16 +5,22 @@ use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::
 use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
 
-use crate::{error::Error, io::file_len, search::{pairing::{self, pair}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::iter::ToGappedWindows, validation::{DelegatingValidator, FileValidationType, FileValidator}};
+use crate::{error::Error, io::file_len, search::{pairing::{self, pair, MatchPart}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::{estimate_cluster_size, iter::ToGappedWindows}, validation::{DelegatingValidator, FileValidationType, FileValidator}};
 
 use self::config::SearchlightConfig;
 
+/// Default size of the blocks to load and search disk image data in
 pub const DEFAULT_BLOCK_SIZE: usize = 1024 * 1024;
+
+pub struct DiskImageInfo {
+	pub path: String,
+	pub cluster_size: Option<Option<u64>>
+}
 
 /// The main mediator of the library, this struct manages state
 pub struct Searchlight {
 	config: SearchlightConfig,
-	queue: VecDeque<String>,
+	queue: VecDeque<DiskImageInfo>,
 }
 
 impl Searchlight {
@@ -31,26 +37,26 @@ impl Searchlight {
 	}
 
 	/// Add a file to the queue of files to be processed
-	pub fn with_file(mut self, path: impl Into<String>) -> Self {
-		self.add_file(path);
+	pub fn with_file(mut self, info: DiskImageInfo) -> Self {
+		self.add_file(info);
 		self
 	}
 
 	/// Add a file to the queue of files to be processed
-	pub fn add_file(&mut self, path: impl Into<String>) {
-		self.queue.push_back(path.into());
+	pub fn add_file(&mut self, info: DiskImageInfo) {
+		self.queue.push_back(info);
 	}
 
 	/// Processes the file at the front of the queue, returning true if one was processed, and false if there were none to be processed.
 	/// Returns an error if one occurred.
 	pub fn process_file(&mut self, output_dir: impl AsRef<str>) -> Result<bool, Error> {
-		if let Some(path) = self.queue.pop_front() {
+		if let Some(info) = self.queue.pop_front() {
 			let (mmap, file_len) = {
-				let mut file = File::open(&path)?;
+				let mut file = File::open(&info.path)?;
 
 				let file_len = file_len(&mut file)?;
 
-				info!("Opened file {} (size: {} bytes)", &path, file_len);
+				info!("Opened file {} (size: {} bytes)", &info.path, file_len);
 
 				(
 					unsafe { MmapOptions::new().map(&file)? },
@@ -82,7 +88,7 @@ impl Searchlight {
 				}
 			};
 
-			debug!("Starting search phase, searching {} bytes in {} blocks of (at most) {} bytes each", file_len, num_blocks, block_size);
+			info!("Starting search phase, searching {} bytes in {} blocks of (at most) {} bytes each", file_len, num_blocks, block_size);
 
 			let mut matches = Vec::new();
 			let mut result_fut: Option<SearchFuture> = None;
@@ -125,6 +131,20 @@ impl Searchlight {
 
 			let id_ftype_map = &pairing::preprocess_config(&self.config);
 
+			// Get the user-supplied cluster size or estimate it based off of headers
+			// A None for cluster size here will indicate that the headers appear to be mostly not allocated on any usual cluster boundaries, or that
+			// has been passed in as the case
+			let cluster_size = info.cluster_size.unwrap_or_else(|| {
+				estimate_cluster_size(matches.iter().filter(|m| {
+					if let Some((_, _, part)) = id_ftype_map.get(&m.id) {
+						*part == MatchPart::Header
+					} else {
+						assert!(false);
+						panic!() // assert!(false) is not detected as a control flow terminator/does not return ! but is more semantically correct
+					}
+				}))
+			});
+
 			if log_enabled!(Level::Trace) {
 				for m in &matches {
 					if let Some((_, ftype, part)) = id_ftype_map.get(&m.id) {
@@ -145,15 +165,13 @@ impl Searchlight {
 			let validator = DelegatingValidator::new();
 
 			for pot_file in match_pairs {
-				let validation = validator.validate(&mmap, &pot_file);
+				let validation = validator.validate(&mmap, &pot_file, cluster_size);
 
 				// TODO: Should the type be reported differently to how it is in the TRACE logs for individual matches? It's technically different - Getting the type id instead of the file extension, and
 				//       so probably should be reported differently, but how? Keeping it lowercase I think
 				debug!("Potential file at {}-{} (type {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
 
 				if validation.validation_type != FileValidationType::Unrecognised {
-					// let end_idx = validation.file_len.map(|len| len + pot_file.start_idx).unwrap_or(pot_file.end_idx + 1);
-
 					let fragments = if validation.fragments.is_empty() {
 						vec![ (pot_file.start_idx..(pot_file.end_idx + 1)) ]
 					} else {
@@ -183,6 +201,8 @@ impl Searchlight {
 					)?;
 				}
 			}
+
+			info!("Successfully validated files exported to {}", output_dir.as_ref());
 
 			Ok(true)
 		} else {

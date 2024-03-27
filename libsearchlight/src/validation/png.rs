@@ -102,7 +102,7 @@ impl PngValidator {
 
 impl FileValidator for PngValidator {
 	// Written using https://www.w3.org/TR/png-3/
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _cluster_size: Option<u64>) -> FileValidationInfo {
 		let mut chunk_idx = file_match.start_idx as usize + 8;
 
 		let mut requires_plte = false;

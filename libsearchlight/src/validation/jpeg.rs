@@ -21,7 +21,7 @@ impl JpegValidator {
 impl FileValidator for JpegValidator {
 	// Written using https://www.w3.org/Graphics/JPEG/jfif3.pdf,
 	// https://www.w3.org/Graphics/JPEG/itu-t81.pdf and https://stackoverflow.com/questions/32873541/scanning-a-jpeg-file-for-markers
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _cluster_size: Option<u64>) -> FileValidationInfo {
 		let start = file_match.start_idx as usize;
 		let end = file_match.end_idx as usize;
 

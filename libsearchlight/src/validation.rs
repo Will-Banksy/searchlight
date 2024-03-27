@@ -17,7 +17,7 @@ pub trait FileValidator {
 	/// Attempts to reconstruct and validate a potential file indicated by a given header-footer pair as belonging to a particular file format, decided per implementor (although there
 	/// is nothing stopping one from making a master validator). This function should return a validation type, indicating the level of validity of the data (see
 	/// FileValidationType variant docs for details) as well as an optional Vec listing all the fragments of the reconstructed file, in order.
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo;
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: Option<u64>) -> FileValidationInfo;
 }
 
 pub struct FileValidationInfo {
@@ -99,9 +99,9 @@ impl DelegatingValidator {
 }
 
 impl FileValidator for DelegatingValidator {
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: Option<u64>) -> FileValidationInfo {
 		if let Some(validator) = self.validators.get(&file_match.file_type.type_id) {
-			validator.validate(file_data, file_match)
+			validator.validate(file_data, file_match, cluster_size)
 		} else {
 			FileValidationInfo {
 				validation_type: FileValidationType::Unanalysed,

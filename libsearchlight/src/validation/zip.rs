@@ -135,7 +135,7 @@ impl ZipValidator {
 
 impl FileValidator for ZipValidator {
 	// Written using: https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt and https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _cluster_size: Option<u64>) -> FileValidationInfo {
 		// Since ZIP files may have multiple headers before 1 footer, and so we can only assume that 1 footer = 1 zip file, this match pair
 		// may well span the nth file in the zip to the EOCD signature. We can check the number of entries we come across however against
 		// the number of entries in the central directory and if they don't match, and no other problems have been encountered, then we can

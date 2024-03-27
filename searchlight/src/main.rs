@@ -7,7 +7,7 @@ use std::{fs, io::Write, time::SystemTime};
 
 use args::Args;
 use clap::Parser;
-use libsearchlight::searchlight::Searchlight;
+use libsearchlight::searchlight::{DiskImageInfo, Searchlight};
 use log::{debug, error};
 
 fn main() {
@@ -42,7 +42,7 @@ fn main() {
 	debug!("config: {:?}", config);
 
 	let mut searchlight = match Searchlight::new(config) {
-		Ok(searchlight) => searchlight.with_file(&args.input),
+		Ok(searchlight) => searchlight.with_file(DiskImageInfo { path: args.input.clone(), cluster_size: None }),
 		Err(e) => {
 			error!("Failed to initialise Searchlight: {}", e);
 			return;
