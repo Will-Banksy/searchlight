@@ -39,7 +39,7 @@ fn main() {
 	debug!("config: {:?}", config);
 
 	let mut searchlight = match Searchlight::new(config) {
-		Ok(searchlight) => searchlight.with_file(DiskImageInfo { path: args.input.clone(), cluster_size: None }),
+		Ok(searchlight) => searchlight.with_file(DiskImageInfo { path: args.input.clone(), cluster_size: args.cluster_size.as_options() }),
 		Err(e) => {
 			error!("Failed to initialise Searchlight: {}", e);
 			return;

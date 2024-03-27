@@ -13,7 +13,7 @@ pub struct Args {
 	pub input: String,
 	/// The cluster size that the filesystem that is/was present in the disk image allocated files in, i.e. all valid non-embedded file headers will be found at multiples of this value.
 	/// Alternatively, you can specify "unaligned" or "unknown"
-	#[arg(short, long)]
+	#[arg(short = 'l', long, default_value = "unknown")]
 	pub cluster_size: ClusterSizeArg,
 	/// The output directory to save recovered file contents in. Defaults to a timestamped directory (startup time) in the current working directory
 	#[arg(short, long)]
@@ -41,6 +41,16 @@ impl FromStr for ClusterSizeArg {
 			"unknown" => Ok(ClusterSizeArg::Unknown),
 			"unaligned" => Ok(ClusterSizeArg::Unaligned),
 			value => Ok(ClusterSizeArg::Known(value.parse::<u64>()?))
+		}
+	}
+}
+
+impl ClusterSizeArg {
+	pub fn as_options(&self) -> Option<Option<u64>> {
+		match self {
+			ClusterSizeArg::Unknown => None,
+			ClusterSizeArg::Unaligned => Some(None),
+			ClusterSizeArg::Known(val) => Some(Some(*val))
 		}
 	}
 }

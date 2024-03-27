@@ -101,7 +101,7 @@ pub fn pair<'a>(matches: &mut Vec<Match>, id_ftype_map: &HashMap<u64, (usize, &'
 	//       e.g. if we have 2 identical ids, the id_ftype_list will only contain an entry for 1 of the headers/footers that have that id... This may be difficult to allow with current design, all we know
 	//       about a match is it's id, and if a match maps to multiple different headers/footers that's difficult to handle - though maybe not impossible... But would it make sense? Tbh, I could maybe change
 	//       it so that each header/footer has a unique id associated with it... but that doesn't solve the problem as then you just end up with a sequence of bytes potentially mapping to multiple unique ids.
-	//       A possible solution would be to duplicate the match for all file types the match id maps to, and let the validation take care of filtering out non-matches
+	//       A possible solution would be to duplicate the match for all file types the match id maps to, and let the validation take care of filtering out non-matches... but that complicates things somewhat
 	// NOTE: Cases of [ H0, H1, F0, F1 ] (all of the same file type) with pair next are handled as [ H0F0, H1F1 ] - This is 1. more intuitive for "pair next" and 2. means we solve [ H0, H1, F0 ] as [ H0F0 ] -
 	//       handling that as [ H1F0 ] seems wrong (or at least, unintuitive for "pair next"), and not the behaviour we'd want, most of the time - perhaps another pairing strategy can be added, "pair next inner"
 	//       or something where we take the alternative behaviour discussed here, e.g. handling [ H0, H1, F0, F1 ] as [ H0F1, H1F0 ] and [ H0, H1, F0 ] as [ H1F0 ]

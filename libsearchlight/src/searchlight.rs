@@ -169,9 +169,7 @@ impl Searchlight {
 			for pot_file in match_pairs {
 				let validation = validator.validate(&mmap, &pot_file, cluster_size);
 
-				// TODO: Should the type be reported differently to how it is in the TRACE logs for individual matches? It's technically different - Getting the type id instead of the file extension, and
-				//       so probably should be reported differently, but how? Keeping it lowercase I think
-				debug!("Potential file at {}-{} (type {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
+				debug!("Potential file at {}-{} (type id {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
 
 				if validation.validation_type != FileValidationType::Unrecognised {
 					let fragments = if validation.fragments.is_empty() {

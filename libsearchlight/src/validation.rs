@@ -39,7 +39,6 @@ pub enum FileValidationType {
 	/// There is some data missing, but what has been recovered is correct
 	Partial,
 	/// Mostly correct, but the data doesn't conform to the expectations of the file format in some way(s)
-	// TODO: Remove FormatError?
 	FormatError,
 	/// The data is partially recognised, but there are miscellaneous/unknown errors
 	Corrupt,
