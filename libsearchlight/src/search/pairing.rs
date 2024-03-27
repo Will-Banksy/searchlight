@@ -675,7 +675,7 @@ mod test {
 
 		let id_ftype_map = preprocess_config(&config);
 
-		println!("matches (before): {:?}\n", match_lists);
+		// println!("matches (before): {:?}\n", match_lists);
 
 		let mut match_list = match_lists[0].clone();
 
@@ -687,8 +687,8 @@ mod test {
 
 		match_pairs.sort_by_key(|e| e.start_idx);
 
-		println!("matches (after): {:?}\n", match_list);
-		println!("match pairs: {:?}", match_pairs);
+		// println!("matches (after): {:?}\n", match_list);
+		// println!("match pairs: {:?}", match_pairs);
 
 		assert_eq!(match_pairs, expected_pairs);
 		assert!(match_list.is_empty());

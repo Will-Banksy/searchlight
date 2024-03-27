@@ -6,6 +6,8 @@ use crate::searchlight::config::SearchlightConfig;
 
 use self::ir::{NodeIR, ConnectionIR};
 
+pub const MATCH_ALL_VALUE: u16 = 0x8000;
+
 mod ir {
 	#[derive(Debug, PartialEq)]
 	pub struct NodeIR {
@@ -124,7 +126,7 @@ impl AcTableBuilder {
 
 impl AcTable {
 	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&AcTableElem> {
-		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value as u16 || e.value == 0x8000)
+		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value as u16 || e.value == MATCH_ALL_VALUE)
 	}
 
 	pub fn num_rows(&self) -> usize {
@@ -152,7 +154,7 @@ impl AcTable {
 				}
 			}
 			for elem in row {
-				if elem.value == 0x8000 {
+				if elem.value == MATCH_ALL_VALUE {
 					accum[i * rlen + rlen - 1] = elem.next_state;
 				} else {
 					accum[i * rlen + elem.value as usize] = elem.next_state;
@@ -176,35 +178,36 @@ mod test {
 
     use super::AcTableBuilder;
 
-	#[test]
-	fn test_encode_indexable() {
-		// let patterns: [&[u8]; 2] = [
-		// 	&[ 69, 69, 69, 69 ],
-		// 	&[ 10, 1, 9, 2, 8, 3, 5, 4, 6 ],
-		// ];
+	// TODO: Make this test actually, well, test something. Need expected values basically
+	// #[test]
+	// fn test_encode_indexable() {
+	// 	// let patterns: [&[u8]; 2] = [
+	// 	// 	&[ 69, 69, 69, 69 ],
+	// 	// 	&[ 10, 1, 9, 2, 8, 3, 5, 4, 6 ],
+	// 	// ];
 
-		let patterns = [&[ 1, 2, 3 ]];
+	// 	let patterns = [&[ 1, 2, 3 ]];
 
-		let mut tb = AcTableBuilder::new(true);
+	// 	let mut tb = AcTableBuilder::new(true);
 
-		for p in patterns {
-			tb.add_pattern(p);
-		}
+	// 	for p in patterns {
+	// 		tb.add_pattern(p);
+	// 	}
 
-		let encoded = tb.build().encode_indexable();
+	// 	let encoded = tb.build().encode_indexable();
 
-		println!("encoded len: {}", encoded.len());
+	// 	println!("encoded len: {}", encoded.len());
 
-		let arr2d: Vec<&[u32]> = encoded.chunks(257).collect();
+	// 	let arr2d: Vec<&[u32]> = encoded.chunks(257).collect();
 
-		for (row_idx, row) in arr2d.iter().enumerate() {
-			for (elem_idx, elem) in row.iter().enumerate() {
-				if *elem != 0 {
-					println!("elem at row {row_idx}, column {elem_idx} is {elem}");
-				}
-			}
-		}
-	}
+	// 	for (row_idx, row) in arr2d.iter().enumerate() {
+	// 		for (elem_idx, elem) in row.iter().enumerate() {
+	// 			if *elem != 0 {
+	// 				println!("elem at row {row_idx}, column {elem_idx} is {elem}");
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	#[test]
 	fn test_ir_gen() {

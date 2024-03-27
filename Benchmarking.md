@@ -18,7 +18,7 @@ Test results: 3508 MB/s (~3.267 GiB)
 
 Each benchmark is run 10 times - 10 samples. The results in the [] are the confidence interval upper and lower bounds, and in the middle, the best guess as to the time taken for each sample, as reported by criterion.
 
-See benches/io_bench.rs for the benchmark file.
+NOTE: The code behind these benchmarks has been removed in recent commits, as it was not used. To view the code that was used to generate these benchmarks, navigate to a1a7e83d7a8f8bb80a17de97cb317507a76c8dbc or any commit before it. The benchmark file, in commits containing it, is benches/io_bench.rs.
 
 ### No-op
 

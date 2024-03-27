@@ -5,7 +5,7 @@ use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::
 use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
 
-use crate::{error::Error, io::file_len, search::{pairing::{self, pair, MatchPart}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::{estimate_cluster_size, iter::ToGappedWindows}, validation::{DelegatingValidator, FileValidationType, FileValidator}};
+use crate::{error::Error, utils::file_len, search::{pairing::{self, pair, MatchPart}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, utils::{estimate_cluster_size, iter::ToGappedWindows}, validation::{DelegatingValidator, FileValidationType, FileValidator}};
 
 use self::config::SearchlightConfig;
 
@@ -93,8 +93,10 @@ impl Searchlight {
 			let mut matches = Vec::new();
 			let mut result_fut: Option<SearchFuture> = None;
 
-			// TODO: Perhaps use a by-block loading method when doing the sequential search and then go back to the memory map for the random-access carving.
+			// PERF: Perhaps use a by-block loading method when doing the sequential search and then go back to the memory map for the random-access carving.
 			//       If possible, when using the GPU search impl, write directly into the vulkan-allocated host-side buffer to avoid a memcpy
+			// PERF: Queuing read operations with io_uring might have a more substantial performance improvement for HDDs, as it may be able to reduce the
+			//       amount of disk rotations - but for a single file, would it be any better? Perhaps look into this
 			for (i, window) in mmap.gapped_windows(block_size, block_size - max_pat_len).enumerate() {
 				// This probably doesn't do a lot but there seems no reason to not have it
 				#[cfg(target_arch = "x86_64")]

@@ -1,13 +1,24 @@
 pub mod iter;
 pub mod str_parse;
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fs::File, io::{self, Seek}};
 
 use crate::search::Match;
 
 #[cfg(test)]
 pub fn init_test_logger() {
 	let _ = env_logger::builder().is_test(true).try_init();
+}
+
+/// Get the length of the file, by querying metadata and as a last resort seeking to the end of the file and getting the offset
+pub fn file_len(file: &mut File) -> Result<u64, io::Error> {
+	if let Ok(metadata) = file.metadata() {
+		Ok(metadata.len())
+	} else {
+		let size = file.seek(io::SeekFrom::End(0))?;
+		file.seek(io::SeekFrom::Start(0))?;
+		Ok(size)
+	}
 }
 
 /// Estimates the cluster size by iterating over each found header and collecting the number of times each header is divisible by

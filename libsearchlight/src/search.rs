@@ -194,9 +194,9 @@ mod test {
 	use super::{super::utils, ac_cpu::AcCpu, pfac_gpu::PfacGpu, search_common::AcTableBuilder, Searcher, SearchFuture, Match};
 
 	#[cfg(feature = "big_tests")]
-	const TEST_FILE: &'static str = "../test_data/nps-2009-canon2-gen6.raw"; // "../test_data/ubnist1.gen3.raw";
+	const TEST_FILE: &'static str = "../test_data/nps-2009-canon2-gen6.raw";
 	#[cfg(feature = "big_tests")]
-	const SEARCH_PATTERNS: &'static [&'static [u8]] = &[ &[ 0xff, 0xd8, 0xff, 0xe0 ], &[ 0xff, 0xd8, 0xff, 0xe1 ] ]; // &[ &[ 0x7f, 0x45, 0x4c, 0x46 ] ]
+	const SEARCH_PATTERNS: &'static [&'static [u16]] = &[ &[ 0xff, 0xd8, 0xff, 0xe0 ], &[ 0xff, 0xd8, 0xff, 0xe1 ] ];
 
 	#[test]
 	fn test_clmul() {
@@ -245,7 +245,7 @@ mod test {
 
 	#[test]
 	#[cfg(feature = "big_tests")]
-	fn test_search_impls() { // TODO: Revisit. Ideally this would be a super fast test case to run cause nobody likes waiting for tests to run. Ideally it'd also run on CI, so I need a smaller file to ship with the code
+	fn test_search_impls() { // TODO: Revisit. Ideally this would be a super fast test case to run cause nobody likes waiting for tests to run. Ideally it'd also run on CI and not be feature-gated, so I need a smaller file to ship with the code
 		utils::init_test_logger();
 
 		let test_data = fs::read(TEST_FILE).unwrap();

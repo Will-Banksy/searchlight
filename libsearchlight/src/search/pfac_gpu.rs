@@ -22,7 +22,7 @@
 // - https://www.embedded.com/optimizing-memcpy-improves-speed/
 // - https://forums.raspberrypi.com/viewtopic.php?t=319315
 //
-// NOTE: Performance - The CUDA zero-copy transfer seems to be rather enormous in terms of optimisation - If I could get the GPU to copy to device from a host-side array that I can use as if it were a standard
+// PERF: The CUDA zero-copy transfer seems to be rather enormous in terms of optimisation - If I could get the GPU to copy to device from a host-side array that I can use as if it were a standard
 //   rust array, then that might bring similar performance improvements. It's maybe possible to do this actually - Vulkano buffers allow direct access to the underlying buffer as a slice,
 //   so I could perhaps use this slice as the buffer in which to store file data (read directly from storage into that buffer) and then I'd have to make sure that access is synchronised, but
 //   I could maybe use it as normal

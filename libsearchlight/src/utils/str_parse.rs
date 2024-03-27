@@ -1,5 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::search::search_common::MATCH_ALL_VALUE;
+
 /// Parses a string, processing escape sequences \\, \xXX, \0, \n, \t, \r, and allows specifying a "match all" '.' for matching any byte value (can be escaped
 /// as \.). Collects the resolved values, or 0x8000 in the case of '.'s, into a Vec<u16>.
 ///
@@ -53,7 +55,7 @@ pub fn parse_match_str(string: &str) -> Vec<u16> {
 					escaped = true;
 				}
 				"." => {
-					buf.push(0x8000);
+					buf.push(MATCH_ALL_VALUE);
 				}
 				c => {
 					for &b in c.as_bytes() {

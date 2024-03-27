@@ -65,8 +65,6 @@ mod vulkan_error {
 
 use std::{fmt::Display, io};
 
-use crate::io::IoManagerError;
-
 #[cfg(feature = "gpu")]
 pub use self::vulkan_error::VulkanError;
 
@@ -85,8 +83,7 @@ pub enum Error {
 	#[cfg(feature = "gpu")]
 	VulkanError(VulkanError),
 	ConfigValidationError,
-	IoError(io::Error),
-	IoManagerError(IoManagerError), // TODO: Try and compress the amount of errors in IoManagerError (with custom std::io::Errors) and move them into here (see https://nrc.github.io/error-docs/error-design/error-type-design.html)
+	IoError(io::Error), // TODO: Try and compress the amount of errors in IoManagerError (with custom std::io::Errors) and move them into here (see https://nrc.github.io/error-docs/error-design/error-type-design.html)
 }
 
 impl Display for Error {
@@ -96,13 +93,11 @@ impl Display for Error {
 			Error::VulkanError(e) => e.to_string(),
 			Error::ConfigValidationError => "Config validation error".to_string(),
 			Error::IoError(e) => e.to_string(),
-			Error::IoManagerError(e) => e.to_string(),
 		})
 	}
 }
 
 impl_from_for_variant!(Error::IoError, io::Error);
-impl_from_for_variant!(Error::IoManagerError, IoManagerError);
 
 #[cfg(feature = "gpu")]
 impl<T> From<T> for Error where T: Into<VulkanError> {
