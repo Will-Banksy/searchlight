@@ -2,11 +2,13 @@ pub mod jpeg;
 pub mod png;
 pub mod zip;
 
+pub mod png2;
+
 use std::{collections::HashMap, ops::Range};
 
 use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 
-use self::{jpeg::JpegValidator, png::PngValidator, zip::ZipValidator};
+use self::{jpeg::JpegValidator, png::PngValidator, png2::Png2Validator, zip::ZipValidator};
 
 pub trait FileValidator {
 	/// Attempts to reconstruct and validate a potential file indicated by a given header-footer pair as belonging to a particular file format, decided per implementor (although there
@@ -81,7 +83,7 @@ impl DelegatingValidator {
 				),
 				(
 					FileTypeId::Png,
-					Box::new(PngValidator::new()) as Box<dyn FileValidator>
+					Box::new(Png2Validator::new()) as Box<dyn FileValidator>
 				),
 				(
 					FileTypeId::Zip,

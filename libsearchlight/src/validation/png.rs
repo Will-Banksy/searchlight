@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::search::pairing::MatchPair;
 
 use super::{FileValidationInfo, FileValidationType, FileValidator};
@@ -98,6 +100,23 @@ impl PngValidator {
 			}
 		}
 	}
+
+	/// Attempts to find the next chunk by skipping forward the cluster size bytes and attempting to validate the chunk found there, up until the `max_idx`.
+	/// `fragmentation_idx` should be the point at which a chunk was expected to be found, but wasn't.
+	fn attempt_reconstruction(frags: &mut Vec<Range<u64>>, fragmentation_idx: usize, prev_chunk_idx: usize, cluster_size: Option<usize>, max_idx: usize) -> Option<usize> {
+		if let Some(cluster_size) = cluster_size {
+			let mut chunk_idx = fragmentation_idx;
+
+			chunk_idx += cluster_size;
+			while chunk_idx < max_idx {
+
+			}
+
+			todo!()
+		} else {
+			None
+		}
+	}
 }
 
 impl FileValidator for PngValidator {
@@ -117,6 +136,12 @@ impl FileValidator for PngValidator {
 		let mut prev_chunk_type = None;
 
 		let mut worst_chunk_validation = FileValidationType::Correct;
+
+		let max_idx = if let Some(max_len) = file_match.file_type.max_len {
+			file_match.start_idx as usize + max_len as usize
+		} else {
+			file_data.len()
+		};
 
 		loop {
 			let chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data[chunk_idx..]);
@@ -163,11 +188,6 @@ impl FileValidator for PngValidator {
 			prev_chunk_type = Some(chunk_info.chunk_type);
 			chunk_idx += chunk_info.data_length as usize + 12;
 
-			let max_idx = if let Some(max_len) = file_match.file_type.max_len {
-				file_match.start_idx as usize + max_len as usize
-			} else {
-				file_data.len()
-			};
 			if (chunk_idx + 12) >= max_idx {
 				break FileValidationInfo {
 					validation_type: FileValidationType::Corrupt,

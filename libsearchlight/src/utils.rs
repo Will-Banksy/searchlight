@@ -21,6 +21,18 @@ pub fn file_len(file: &mut File) -> Result<u64, io::Error> {
 	}
 }
 
+/// Calculates the next multiple of `multiple` of `num`. E.g. `next_multiple_of(7, 3) == 9`,
+/// `next_multiple_of(9, 3) == 12`
+pub fn next_multiple_of(num: u64, multiple: u64) -> u64 {
+	((num / multiple) + 1) * multiple
+}
+
+/// Calculates the previous multiple of `multiple` of `num`. E.g. `prev_multiple_of(7, 3) == 6`,
+/// `prev_multiple_of(9, 3) == 9`
+pub fn prev_multiple_of(num: u64, multiple: u64) -> u64 {
+	(num / multiple) * multiple
+}
+
 /// Estimates the cluster size by iterating over each found header and collecting the number of times each header is divisible by
 /// each power of two between 512 and 65,536, taking the mode of those counts. Also counts the number of times a header is not divisible
 /// by any power of two and if that is more common than a power of two, None is returned to indicate an estimate that most files are not
