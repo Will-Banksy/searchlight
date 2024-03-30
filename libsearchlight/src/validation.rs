@@ -2,19 +2,20 @@ pub mod jpeg;
 pub mod png;
 pub mod zip;
 
-pub mod png2;
-
 use std::{collections::HashMap, ops::Range};
 
 use crate::{search::pairing::MatchPair, searchlight::config::FileTypeId};
 
-use self::{jpeg::JpegValidator, png::PngValidator, png2::Png2Validator, zip::ZipValidator};
+use self::{jpeg::JpegValidator, png::PngValidator, zip::ZipValidator};
 
 pub trait FileValidator {
 	/// Attempts to reconstruct and validate a potential file indicated by a given header-footer pair as belonging to a particular file format, decided per implementor (although there
 	/// is nothing stopping one from making a master validator). This function should return a validation type, indicating the level of validity of the data (see
 	/// FileValidationType variant docs for details) as well as an optional Vec listing all the fragments of the reconstructed file, in order.
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: Option<u64>) -> FileValidationInfo;
+	///
+	/// `cluster_size` is given to aid reconstruction logic. It must not be assumed that cluster_size is any sensible value, as users can pass in anything. Additionally, a cluster size of
+	/// 1 indicates that files in the image aren't allocated on cluster boundaries
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64) -> FileValidationInfo;
 }
 
 pub struct FileValidationInfo {
@@ -83,7 +84,7 @@ impl DelegatingValidator {
 				),
 				(
 					FileTypeId::Png,
-					Box::new(Png2Validator::new()) as Box<dyn FileValidator>
+					Box::new(PngValidator::new()) as Box<dyn FileValidator>
 				),
 				(
 					FileTypeId::Zip,
@@ -95,7 +96,7 @@ impl DelegatingValidator {
 }
 
 impl FileValidator for DelegatingValidator {
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: Option<u64>) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64) -> FileValidationInfo {
 		if let Some(validator) = self.validators.get(&file_match.file_type.type_id) {
 			validator.validate(file_data, file_match, cluster_size)
 		} else {

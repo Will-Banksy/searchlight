@@ -14,7 +14,7 @@ pub const DEFAULT_BLOCK_SIZE: usize = 1024 * 1024;
 
 pub struct DiskImageInfo {
 	pub path: String,
-	pub cluster_size: Option<Option<u64>>
+	pub cluster_size: Option<u64>
 }
 
 /// The main mediator of the library, this struct manages state
@@ -144,7 +144,7 @@ impl Searchlight {
 						assert!(false);
 						panic!() // assert!(false) is not detected as a control flow terminator/does not return ! but is more semantically correct
 					}
-				}))
+				})).unwrap_or(1) // A cluster size of 1 is effectively the same as not being clustered
 			});
 
 			if log_enabled!(Level::Trace) {

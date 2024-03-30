@@ -46,11 +46,11 @@ impl FromStr for ClusterSizeArg {
 }
 
 impl ClusterSizeArg {
-	pub fn as_options(&self) -> Option<Option<u64>> {
+	pub fn as_option(&self) -> Option<u64> {
 		match self {
 			ClusterSizeArg::Unknown => None,
-			ClusterSizeArg::Unaligned => Some(None),
-			ClusterSizeArg::Known(val) => Some(Some(*val))
+			ClusterSizeArg::Unaligned => Some(1),
+			ClusterSizeArg::Known(val) => Some(*val)
 		}
 	}
 }

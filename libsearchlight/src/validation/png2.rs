@@ -92,7 +92,11 @@ fn validate_byte(state: &mut State, counter: &mut usize, byte: u8) -> bool {
 				data_crc_hasher.update(&[byte]);
 
 				if *counter == 3 {
-					new_state = Some(State::ReadingChunkData { data_len: *data_len, c_type: *c_type, data_crc_hasher: data_crc_hasher.clone() })
+					if *data_len == 0 {
+						new_state = Some(State::ReadingCrc { c_type: *c_type, data_crc: data_crc_hasher.finish() as u32, crc: 0 });
+					} else {
+						new_state = Some(State::ReadingChunkData { data_len: *data_len, c_type: *c_type, data_crc_hasher: data_crc_hasher.clone() })
+					}
 				}
 
 				true
@@ -103,13 +107,14 @@ fn validate_byte(state: &mut State, counter: &mut usize, byte: u8) -> bool {
 		State::ReadingChunkData { data_len, c_type, data_crc_hasher } => {
 			data_crc_hasher.update(&[byte]);
 
-			if *counter == *data_len as usize - 1 {
+			if *counter + 1 == *data_len as usize {
 				new_state = Some(State::ReadingCrc { c_type: *c_type, data_crc: data_crc_hasher.finish() as u32, crc: 0 });
 			}
 
-			true // FIXME: There's some fucking '-' underflow on this line?? Find it and fix it
+			true
 		}
 		State::ReadingCrc { c_type, data_crc, crc } => {
+			assert!(*counter <= 3);
 			let byte_idx = 3 - *counter;
 
 			*crc = *crc ^ ((byte as u32) << byte_idx * 8);
