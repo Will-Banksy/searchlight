@@ -21,13 +21,13 @@ pub fn file_len(file: &mut File) -> Result<u64, io::Error> {
 	}
 }
 
-/// Calculates the next multiple of `multiple` of `num`. E.g. `next_multiple_of(7, 3) == 9`,
+/// Calculates the next multiple of `multiple` from `num`. E.g. `next_multiple_of(7, 3) == 9`,
 /// `next_multiple_of(9, 3) == 12`
 pub fn next_multiple_of(num: u64, multiple: u64) -> u64 {
 	((num / multiple) + 1) * multiple
 }
 
-/// Calculates the previous multiple of `multiple` of `num`. E.g. `prev_multiple_of(7, 3) == 6`,
+/// Calculates the previous multiple of `multiple` from `num`. E.g. `prev_multiple_of(7, 3) == 6`,
 /// `prev_multiple_of(9, 3) == 9`
 pub fn prev_multiple_of(num: u64, multiple: u64) -> u64 {
 	(num / multiple) * multiple

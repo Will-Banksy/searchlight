@@ -7,6 +7,9 @@ use clap::Parser;
 use libsearchlight::searchlight::{DiskImageInfo, Searchlight};
 use log::{debug, error};
 
+#[cfg(not(target_pointer_width = "64"))]
+compile_error!("Target architecture is not 64-bit - This software is only supported on 64-bit platforms");
+
 fn main() {
 	let mut args = Args::parse();
 

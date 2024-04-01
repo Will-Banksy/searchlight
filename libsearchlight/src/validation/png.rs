@@ -1,6 +1,4 @@
-use std::ops::Range;
-
-use crate::search::pairing::MatchPair;
+use crate::{search::pairing::MatchPair, utils};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator};
 
@@ -68,6 +66,7 @@ impl PngValidator {
 
 			// Find the next valid chunk type
 			// TODO: Improvements could be made, such as using a list of known valid chunk types. This can't be exhaustive though so will miss valid chunks
+			//       Perhaps an improvement that could stop text files being counted be checking that the CRC and length are not ASCII? Course, they may be in a valid file, but are unlikely to be
 			while !Self::validate_chunk_type(&file_data[next_chunk_type_offset..4]) {
 				next_chunk_type_offset += cluster_size as usize;
 
@@ -81,12 +80,30 @@ impl PngValidator {
 				}
 			}
 
+			let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
+
+			// Calculate the fragmentation points
+			// NOTE: Assuming that chunk_idx is in the same fragment as chunk_idx + 8
+			let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
+			// NOTE: Assuming that next_chunk_type_offset is in the same fragment as next_chunk_type_offset - 8
+			let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset as u64 - 8, cluster_size) as usize;
+
+			// Calculate the number of clusters that were skipped, i.e. the number of irrelevant chunks
+			let clusters_skipped = (next_chunk_type_offset - (unfrag_crc_offset + 8)) / cluster_size as usize;
+			let clusters_needed = ((fragmentation_end - fragmentation_start) / cluster_size as usize) - clusters_skipped;
+
+			// Some asserts to make sure our calculations are correct and assumptions are upheld as the code is written
+			assert_eq!((next_chunk_type_offset - (unfrag_crc_offset + 8)) % cluster_size as usize, 0);
+			assert_eq!((fragmentation_end - fragmentation_start) % cluster_size as usize, 0);
+
 			// TODO: We've found the next chunk type (hopefully). Now, decode the stored CRC, and find the arrangements of clusters from the fragmentation start point to this point
 			//       that result in the calculated CRC matching the decoded CRC
 		}
 
 		// TODO: Do chunk validation once found fragmentation
 		// let chunk_data_validation = Self::validate_chunk_data(chunk_type, data, requires_plte, plte_forbidden);
+
+		// TODO: Somehow this function needs to return something in the case of fragmentation - Maybe it adds to a mutable fragments vec
 
 		todo!()
 	}
