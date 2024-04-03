@@ -18,11 +18,13 @@ pub trait FileValidator {
 	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64) -> FileValidationInfo;
 }
 
+pub type Fragment = Range<u64>;
+
 pub struct FileValidationInfo {
 	/// The result of validating the data - Whether it is recognised as fully present and correct, partial, corrupted, etc
 	pub validation_type: FileValidationType,
 	/// The fragment(s) of file content, expressed in terms of a range of indexes into the file data array, or an empty Vec if there are no recoverable fragments
-	pub fragments: Vec<Range<u64>>
+	pub fragments: Vec<Fragment>
 }
 
 impl Default for FileValidationInfo {

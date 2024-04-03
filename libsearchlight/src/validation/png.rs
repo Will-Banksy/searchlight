@@ -1,6 +1,8 @@
-use crate::{search::pairing::MatchPair, utils};
+use log::trace;
 
-use super::{FileValidationInfo, FileValidationType, FileValidator};
+use crate::{search::pairing::MatchPair, utils::{self, fragments_index::FragmentsIndex}};
+
+use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
 const PNG_IHDR: u32 = 0x49484452; // "IHDR" as u32
 const PNG_IDAT: u32 = 0x49444154; // "IDAT" as u32
@@ -13,8 +15,41 @@ pub struct PngValidator;
 
 struct ChunkValidationInfo {
 	validation_type: FileValidationType,
-	data_length: u32,
 	chunk_type: u32,
+	chunk_frags: Vec<Fragment>,
+	next_chunk_idx: u64,
+}
+
+impl ChunkValidationInfo {
+	pub fn new_unfragmented(validation_type: FileValidationType, chunk_type: u32, chunk_idx: usize, data_len: u32) -> Self {
+		let next_chunk_idx = chunk_idx as u64 + 12 + data_len as u64;
+
+		ChunkValidationInfo {
+			validation_type,
+			chunk_type,
+			chunk_frags: vec![chunk_idx as u64..next_chunk_idx],
+			next_chunk_idx: chunk_idx as u64 + 12 + data_len as u64
+		}
+	}
+
+	pub fn new_fragmented(validation_type: FileValidationType, chunk_type: u32, fragments: Vec<Fragment>) -> Self {
+		let next_chunk_idx = fragments.iter().max_by_key(|f| f.end).expect("Expected at least one fragment").end;
+
+		ChunkValidationInfo {
+			validation_type,
+			chunk_type,
+			chunk_frags: fragments,
+			next_chunk_idx
+		}
+	}
+}
+
+enum ChunkReconstructionInfo {
+	Success {
+		chunk_frags: Vec<Fragment>,
+		next_chunk_idx: u64
+	},
+	Failure
 }
 
 impl PngValidator {
@@ -22,8 +57,10 @@ impl PngValidator {
 		PngValidator
 	}
 
+	/// Validate a PNG chunk, // TODO write doc comment
+	/// `chunk_idx` refers to the very start of a chunk, where a chunk is \[`len`\]\[`type`\]\[`data`\]\[`crc`\]
 	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, file_data: &[u8], chunk_idx: usize, cluster_size: u64) -> ChunkValidationInfo {
-		// Macro to make extracting fields a bit more readable: file_data[(chunk_idx + 4)..(chunk_idx + 8)] -> chunk_data[4, 8]
+		/// Macro to make extracting fields a bit more readable: file_data[(chunk_idx + 4)..(chunk_idx + 8)] -> chunk_data[4, 8]
 		macro_rules! chunk_data {
 			[$start: expr, $end: expr] => {
 				file_data[(chunk_idx + $start)..(chunk_idx + $end)]
@@ -36,11 +73,12 @@ impl PngValidator {
 		let chunk_type_valid = Self::validate_chunk_type(&chunk_data![4, 8]);
 
 		if !chunk_type_valid || chunk_idx + chunk_data_len as usize + 12 >= file_data.len() {
-			return ChunkValidationInfo {
-				validation_type: FileValidationType::Unrecognised,
-				data_length: 0,
-				chunk_type
-			};
+			return ChunkValidationInfo::new_unfragmented(
+				FileValidationType::Unrecognised,
+				chunk_type,
+				chunk_idx,
+				0
+			);
 		}
 
 		let unfrag_crc_offset = chunk_idx + chunk_data_len as usize + 8;
@@ -49,61 +87,100 @@ impl PngValidator {
 
 		let calc_crc = crc32fast::hash(&chunk_data![4, 8 + chunk_data_len as usize]);
 
-		if crc != calc_crc {
+		// Collect the fragments of the chunk data to be validated, using either reconstruction techniques if possible, or in the case
+		// of unfragmented chunks, just grab that range
+		let chunk_data_frags = if crc != calc_crc {
 			// If the read crc and calculated CRC don't match, then unless this is a IEND chunk in which we can just say "end is here but is some is missing"
 			// then we try and find the next chunk label
+			// Note that we only try handle in-order fragmentations
 
 			// If IEND, just return partial cause we're at the end anyway
 			if chunk_type == PNG_IEND {
-				return ChunkValidationInfo {
-					validation_type: FileValidationType::Partial,
-					data_length: 0,
-					chunk_type
-				}
+				return ChunkValidationInfo::new_unfragmented(
+					FileValidationType::Partial,
+					chunk_type,
+					chunk_idx,
+					0
+				);
 			}
 
-			let mut next_chunk_type_offset = unfrag_crc_offset + 8;
+			let recons_info = Self::reconstruct_chunk(file_data, chunk_idx, chunk_type, chunk_data_len as usize, cluster_size);
 
-			// Find the next valid chunk type
-			// TODO: Improvements could be made, such as using a list of known valid chunk types. This can't be exhaustive though so will miss valid chunks
-			//       Perhaps an improvement that could stop text files being counted be checking that the CRC and length are not ASCII? Course, they may be in a valid file, but are unlikely to be
-			while !Self::validate_chunk_type(&file_data[next_chunk_type_offset..4]) {
-				next_chunk_type_offset += cluster_size as usize;
-
-				// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with partial
-				if next_chunk_type_offset + 4 >= file_data.len() { // BUG: We're not paying any attention to file max size here. We should also maybe add something additional, like max_reconstruction_search_length
-					return ChunkValidationInfo {
-						validation_type: FileValidationType::Partial,
-						data_length: chunk_data_len,
-						chunk_type
-					}
-				}
+			// if let ChunkReconstructionInfo::Success { chunk_frags, next_chunk_idx } = recons_info {
+			// 	ChunkValidationInfo::new_fragmented(
+			// 		FileValidationType::Correct,
+			// 		chunk_type,
+			// 		chunk_frags
+			// 	)
+			// }
+			if let ChunkReconstructionInfo::Failure = recons_info {
+				return ChunkValidationInfo::new_fragmented(
+					FileValidationType::Partial,
+					chunk_type,
+					Vec::new()
+				);
 			}
 
-			let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
+			// TODO: Trim the fragments to only contain the chunk data, then return
 
-			// Calculate the fragmentation points
-			// NOTE: Assuming that chunk_idx is in the same fragment as chunk_idx + 8
-			let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
-			// NOTE: Assuming that next_chunk_type_offset is in the same fragment as next_chunk_type_offset - 8
-			let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset as u64 - 8, cluster_size) as usize;
+			todo!()
+		} else {
+			vec![
+				(chunk_idx as u64 + 8)..(unfrag_crc_offset as u64)
+			]
+		};
 
-			// Calculate the number of clusters that were skipped, i.e. the number of irrelevant chunks
-			let clusters_skipped = (next_chunk_type_offset - (unfrag_crc_offset + 8)) / cluster_size as usize;
-			let clusters_needed = ((fragmentation_end - fragmentation_start) / cluster_size as usize) - clusters_skipped;
+		// Wrap the chunk data fragments in a FragmentsIndex with the file data to be able to transparently index into fragmented chunk data,
+		// then pass that to the validate_chunk_data function
+		let chunk_data_indexable = FragmentsIndex::new(file_data, &chunk_data_frags);
+		let chunk_data_validation = Self::validate_chunk_data(chunk_type, chunk_data_indexable, requires_plte, plte_forbidden);
 
-			// Some asserts to make sure our calculations are correct and assumptions are upheld as the code is written
-			assert_eq!((next_chunk_type_offset - (unfrag_crc_offset + 8)) % cluster_size as usize, 0);
-			assert_eq!((fragmentation_end - fragmentation_start) % cluster_size as usize, 0);
+		// TODO: Figure out how to handle/pass around the chunk data fragments as well as the whole chunk fragments...
+		//       Perhaps pass around whole chunk fragments and then have FragmentsIndex or some other wrapper struct
+		//       "slice" the fragments i.e. offset the start index and decrease the len. Much like slicing slices but
+		//       for fragments where the indexes are stored separately to the data
 
-			// TODO: We've found the next chunk type (hopefully). Now, decode the stored CRC, and find the arrangements of clusters from the fragmentation start point to this point
-			//       that result in the calculated CRC matching the decoded CRC
+		todo!()
+	}
+
+	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_type: u32, chunk_data_len: usize, cluster_size: u64) -> ChunkReconstructionInfo {
+		let unfrag_crc_offset = chunk_idx + chunk_data_len + 8;
+
+		let mut next_chunk_type_offset = unfrag_crc_offset + 4;
+
+		// Find the next valid chunk type
+		// TODO: Improvements could be made, such as using a list of known valid chunk types. This can't be exhaustive though so will miss valid chunks
+		//       Perhaps an improvement that could stop text files being counted be checking that the CRC and length are not ASCII? Course, they may be in a valid file, but are unlikely to be
+		while !Self::validate_chunk_type(&file_data[next_chunk_type_offset..4]) {
+			next_chunk_type_offset += cluster_size as usize;
+
+			// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with partial
+			if next_chunk_type_offset + 4 >= file_data.len() { // BUG: We're not paying any attention to file max size here. We should also maybe add something additional, like max_reconstruction_search_length
+				return ChunkReconstructionInfo::Failure;
+			}
 		}
 
-		// TODO: Do chunk validation once found fragmentation
-		// let chunk_data_validation = Self::validate_chunk_data(chunk_type, data, requires_plte, plte_forbidden);
+		trace!("Omg we got to the icky bit");
 
-		// TODO: Somehow this function needs to return something in the case of fragmentation - Maybe it adds to a mutable fragments vec
+		// Load the (what we assume is) the CRC
+		let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
+
+		// Calculate the fragmentation points
+		// NOTE: Assuming that chunk_idx is in the same fragment as chunk_idx + 8
+		let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
+		// NOTE: Assuming that next_chunk_type_offset is in the same fragment as next_chunk_type_offset - 8
+		let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset as u64 - 8, cluster_size) as usize;
+
+		// Calculate the number of clusters that were skipped, i.e. the number of irrelevant chunks
+		let clusters_skipped = (next_chunk_type_offset - (unfrag_crc_offset + 8)) / cluster_size as usize;
+		let clusters_needed = ((fragmentation_end - fragmentation_start) / cluster_size as usize) - clusters_skipped;
+
+		// Some asserts to make sure our calculations are correct and assumptions are upheld as the code is written
+		assert_eq!((next_chunk_type_offset - (unfrag_crc_offset + 8)) % cluster_size as usize, 0);
+		assert_eq!((fragmentation_end - fragmentation_start) % cluster_size as usize, 0);
+
+		// TODO: We've found the next chunk type (hopefully). Now, decode the stored CRC, and find the arrangements of clusters from the fragmentation start point to this point
+		//       that result in the calculated CRC matching the decoded CRC
 
 		todo!()
 	}
@@ -120,7 +197,7 @@ impl PngValidator {
 		return true;
 	}
 
-	fn validate_chunk_data(chunk_type: u32, data: &[u8], requires_plte: &mut bool, plte_forbidden: &mut bool) -> FileValidationType {
+	fn validate_chunk_data(chunk_type: u32, data: FragmentsIndex, requires_plte: &mut bool, plte_forbidden: &mut bool) -> FileValidationType {
 		let spec_conformant = match chunk_type {
 			PNG_IHDR => {
 				let bit_depth: u8 = data[0];
@@ -210,6 +287,8 @@ impl FileValidator for PngValidator {
 			file_data.len()
 		};
 
+		let mut fragments: Vec<Fragment> = Vec::new();
+
 		loop {
 			let chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size);
 
@@ -253,7 +332,7 @@ impl FileValidator for PngValidator {
 			}
 
 			prev_chunk_type = Some(chunk_info.chunk_type);
-			chunk_idx += chunk_info.data_length as usize + 12;
+			chunk_idx = chunk_info.next_chunk_idx as usize; // TODO: Check that this is correct
 
 			if (chunk_idx + 12) >= max_idx {
 				break FileValidationInfo {

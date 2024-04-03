@@ -1,5 +1,6 @@
 pub mod iter;
 pub mod str_parse;
+pub mod fragments_index;
 
 use std::{collections::BTreeMap, fs::File, io::{self, Seek}};
 
