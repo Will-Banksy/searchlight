@@ -4,6 +4,61 @@ use crate::{search::pairing::MatchPair, utils::{self, fragments_index::Fragments
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
+// List of known PNG chunks. Source: https://github.com/ImageMagick/ImageMagick/blob/main/coders/png.c
+const PNG_CHUNK_TYPES: [u32; 50] = [
+	u32::from_be_bytes(*b"BACK"),
+	u32::from_be_bytes(*b"BASI"),
+	u32::from_be_bytes(*b"bKGD"),
+	u32::from_be_bytes(*b"caNv"),
+	u32::from_be_bytes(*b"cHRM"),
+	u32::from_be_bytes(*b"CLIP"),
+	u32::from_be_bytes(*b"CLON"),
+	u32::from_be_bytes(*b"DEFI"),
+	u32::from_be_bytes(*b"DHDR"),
+	u32::from_be_bytes(*b"DISC"),
+	u32::from_be_bytes(*b"ENDL"),
+	u32::from_be_bytes(*b"eXIf"),
+	u32::from_be_bytes(*b"FRAM"),
+	u32::from_be_bytes(*b"gAMA"),
+	u32::from_be_bytes(*b"hIST"),
+	u32::from_be_bytes(*b"iCCP"),
+	u32::from_be_bytes(*b"IDAT"),
+	u32::from_be_bytes(*b"IEND"),
+	u32::from_be_bytes(*b"IHDR"),
+	u32::from_be_bytes(*b"iTXt"),
+	u32::from_be_bytes(*b"JdAA"),
+	u32::from_be_bytes(*b"JDAA"),
+	u32::from_be_bytes(*b"JDAT"),
+	u32::from_be_bytes(*b"JHDR"),
+	u32::from_be_bytes(*b"JSEP"),
+	u32::from_be_bytes(*b"LOOP"),
+	u32::from_be_bytes(*b"MAGN"),
+	u32::from_be_bytes(*b"MEND"),
+	u32::from_be_bytes(*b"MHDR"),
+	u32::from_be_bytes(*b"MOVE"),
+	u32::from_be_bytes(*b"nEED"),
+	u32::from_be_bytes(*b"oFFs"),
+	u32::from_be_bytes(*b"orNT"),
+	u32::from_be_bytes(*b"PAST"),
+	u32::from_be_bytes(*b"pHYg"),
+	u32::from_be_bytes(*b"pHYs"),
+	u32::from_be_bytes(*b"PLTE"),
+	u32::from_be_bytes(*b"SAVE"),
+	u32::from_be_bytes(*b"sBIT"),
+	u32::from_be_bytes(*b"SEEK"),
+	u32::from_be_bytes(*b"SHOW"),
+	u32::from_be_bytes(*b"sPLT"),
+	u32::from_be_bytes(*b"sRGB"),
+	u32::from_be_bytes(*b"sTER"),
+	u32::from_be_bytes(*b"TERM"),
+	u32::from_be_bytes(*b"tEXt"),
+	u32::from_be_bytes(*b"tIME"),
+	u32::from_be_bytes(*b"tRNS"),
+	u32::from_be_bytes(*b"vpAg"),
+	u32::from_be_bytes(*b"zTXt"),
+];
+
+// Some particular PNG chunks
 const PNG_IHDR: u32 = 0x49484452; // "IHDR" as u32
 const PNG_IDAT: u32 = 0x49444154; // "IDAT" as u32
 const PNG_PLTE: u32 = 0x504C5445; // "PLTE" as u32
@@ -17,24 +72,22 @@ struct ChunkValidationInfo {
 	validation_type: FileValidationType,
 	chunk_type: u32,
 	chunk_frags: Vec<Fragment>,
-	next_chunk_idx: u64,
+	next_chunk_idx: Option<u64>,
 }
 
 impl ChunkValidationInfo {
-	pub fn new_unfragmented(validation_type: FileValidationType, chunk_type: u32, chunk_idx: usize, data_len: u32) -> Self {
+	pub fn new_unfragmented(validation_type: FileValidationType, chunk_type: u32, chunk_idx: usize, data_len: u32, should_continue: bool) -> Self {
 		let next_chunk_idx = chunk_idx as u64 + 12 + data_len as u64;
 
 		ChunkValidationInfo {
 			validation_type,
 			chunk_type,
 			chunk_frags: vec![chunk_idx as u64..next_chunk_idx],
-			next_chunk_idx: chunk_idx as u64 + 12 + data_len as u64
+			next_chunk_idx: if should_continue { Some(chunk_idx as u64 + 12 + data_len as u64) } else { None }
 		}
 	}
 
-	pub fn new_fragmented(validation_type: FileValidationType, chunk_type: u32, fragments: Vec<Fragment>) -> Self {
-		let next_chunk_idx = fragments.iter().max_by_key(|f| f.end).expect("Expected at least one fragment").end;
-
+	pub fn new_fragmented(validation_type: FileValidationType, chunk_type: u32, fragments: Vec<Fragment>, next_chunk_idx: Option<u64>) -> Self {
 		ChunkValidationInfo {
 			validation_type,
 			chunk_type,
@@ -57,8 +110,8 @@ impl PngValidator {
 		PngValidator
 	}
 
-	/// Validate a PNG chunk, // TODO write doc comment
-	/// `chunk_idx` refers to the very start of a chunk, where a chunk is \[`len`\]\[`type`\]\[`data`\]\[`crc`\]
+	/// Validates and reconstructs PNG chunk at `chunk_idx` in `file_data`, where `file_data` has a cluster size of `cluster_size`, so files can be assumed
+	/// to be allocated in blocks of `cluster_size`. `chunk_idx` refers to the very start of a chunk, where a chunk is \[`len`\]\[`type`\]\[`data`\]\[`crc`\].
 	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, file_data: &[u8], chunk_idx: usize, cluster_size: u64) -> ChunkValidationInfo {
 		/// Macro to make extracting fields a bit more readable: file_data[(chunk_idx + 4)..(chunk_idx + 8)] -> chunk_data[4, 8]
 		macro_rules! chunk_data {
@@ -72,12 +125,14 @@ impl PngValidator {
 
 		let chunk_type_valid = Self::validate_chunk_type(&chunk_data![4, 8]);
 
-		if !chunk_type_valid || chunk_idx + chunk_data_len as usize + 12 >= file_data.len() {
+		if !chunk_type_valid || chunk_idx + chunk_data_len as usize + 12 > file_data.len() {
+			// trace!("Chunk unrecognised: type {chunk_type}")
 			return ChunkValidationInfo::new_unfragmented(
 				FileValidationType::Unrecognised,
 				chunk_type,
 				chunk_idx,
-				0
+				0,
+				false
 			);
 		}
 
@@ -89,7 +144,7 @@ impl PngValidator {
 
 		// Collect the fragments of the chunk data to be validated, using either reconstruction techniques if possible, or in the case
 		// of unfragmented chunks, just grab that range
-		let chunk_data_frags = if crc != calc_crc {
+		let (chunk_frags, next_chunk_idx) = if crc != calc_crc {
 			// If the read crc and calculated CRC don't match, then unless this is a IEND chunk in which we can just say "end is here but is some is missing"
 			// then we try and find the next chunk label
 			// Note that we only try handle in-order fragmentations
@@ -100,61 +155,74 @@ impl PngValidator {
 					FileValidationType::Partial,
 					chunk_type,
 					chunk_idx,
-					0
+					0,
+					false
 				);
 			}
 
+			// Attempt to reconstruct the chunk
 			let recons_info = Self::reconstruct_chunk(file_data, chunk_idx, chunk_type, chunk_data_len as usize, cluster_size);
 
-			// if let ChunkReconstructionInfo::Success { chunk_frags, next_chunk_idx } = recons_info {
-			// 	ChunkValidationInfo::new_fragmented(
-			// 		FileValidationType::Correct,
-			// 		chunk_type,
-			// 		chunk_frags
-			// 	)
-			// }
-			if let ChunkReconstructionInfo::Failure = recons_info {
-				return ChunkValidationInfo::new_fragmented(
-					FileValidationType::Partial,
-					chunk_type,
-					Vec::new()
-				);
+			match recons_info {
+				ChunkReconstructionInfo::Failure => {
+					// If reconstruction failure, return the chunk as if it was unfragmented, with whatever data is past the chunk, and
+					// give the signal to not continue reconstruction
+					return ChunkValidationInfo::new_unfragmented(
+						FileValidationType::Partial,
+						chunk_type,
+						chunk_idx,
+						chunk_data_len,
+						false
+					);
+				}
+				ChunkReconstructionInfo::Success { chunk_frags, next_chunk_idx } => {
+					// If success simply return the found fragments and next chunk index
+					(chunk_frags, next_chunk_idx)
+				}
 			}
-
-			// TODO: Trim the fragments to only contain the chunk data, then return
-
-			todo!()
 		} else {
-			vec![
-				(chunk_idx as u64 + 8)..(unfrag_crc_offset as u64)
-			]
+			(
+				vec![
+					(chunk_idx as u64)..(unfrag_crc_offset as u64 + 4)
+				],
+				unfrag_crc_offset as u64 + 4
+			)
 		};
 
-		// Wrap the chunk data fragments in a FragmentsIndex with the file data to be able to transparently index into fragmented chunk data,
-		// then pass that to the validate_chunk_data function
-		let chunk_data_indexable = FragmentsIndex::new(file_data, &chunk_data_frags);
-		let chunk_data_validation = Self::validate_chunk_data(chunk_type, chunk_data_indexable, requires_plte, plte_forbidden);
+		let chunk_data_validation = if chunk_data_len > 0 {
+			// Wrap the chunk data fragments in a FragmentsIndex with the file data to be able to transparently index into fragmented chunk data,
+			// then pass that to the validate_chunk_data function
+			let chunk_data_indexable = FragmentsIndex::new_sliced(file_data, &chunk_frags, 8, 4);
+			Self::validate_chunk_data(chunk_type, chunk_data_indexable, requires_plte, plte_forbidden)
+		} else {
+			true
+		};
 
-		// TODO: Figure out how to handle/pass around the chunk data fragments as well as the whole chunk fragments...
-		//       Perhaps pass around whole chunk fragments and then have FragmentsIndex or some other wrapper struct
-		//       "slice" the fragments i.e. offset the start index and decrease the len. Much like slicing slices but
-		//       for fragments where the indexes are stored separately to the data
-
-		todo!()
+		// Return a successful chunk recovery
+		ChunkValidationInfo::new_fragmented(
+			if chunk_data_validation { FileValidationType::Correct } else { FileValidationType::FormatError },
+			chunk_type,
+			chunk_frags,
+			Some(next_chunk_idx)
+		)
 	}
 
+	/// Attempts to reconstruct a fragmented PNG chunk, assuming that the length, chunk type, and CRC are not fragmented and that all
+	/// fragments of the chunk are in-order (limitations) by searching forwards for a valid chunk type, decoding the CRC that should occur just before it,
+	/// and enumerating the possible cluster arrangements between the start of the chunk data and the decoded CRC for a matching calculated CRC
 	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_type: u32, chunk_data_len: usize, cluster_size: u64) -> ChunkReconstructionInfo {
 		let unfrag_crc_offset = chunk_idx + chunk_data_len + 8;
 
 		let mut next_chunk_type_offset = unfrag_crc_offset + 4;
 
 		// Find the next valid chunk type
-		// TODO: Improvements could be made, such as using a list of known valid chunk types. This can't be exhaustive though so will miss valid chunks
-		//       Perhaps an improvement that could stop text files being counted be checking that the CRC and length are not ASCII? Course, they may be in a valid file, but are unlikely to be
+		// NOTE: Currently, we're checking against a list of known valid chunk types. This can't be exhaustive though so will miss valid chunks
+		//       Perhaps an alternative method that could stop text files being counted be checking that the CRC and length are not ASCII (alphabetical?)?
+		//       Course, they may be in a valid file, but are unlikely to be
 		while !Self::validate_chunk_type(&file_data[next_chunk_type_offset..4]) {
 			next_chunk_type_offset += cluster_size as usize;
 
-			// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with partial
+			// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with failure
 			if next_chunk_type_offset + 4 >= file_data.len() { // BUG: We're not paying any attention to file max size here. We should also maybe add something additional, like max_reconstruction_search_length
 				return ChunkReconstructionInfo::Failure;
 			}
@@ -166,9 +234,7 @@ impl PngValidator {
 		let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
 
 		// Calculate the fragmentation points
-		// NOTE: Assuming that chunk_idx is in the same fragment as chunk_idx + 8
 		let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
-		// NOTE: Assuming that next_chunk_type_offset is in the same fragment as next_chunk_type_offset - 8
 		let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset as u64 - 8, cluster_size) as usize;
 
 		// Calculate the number of clusters that were skipped, i.e. the number of irrelevant chunks
@@ -185,26 +251,21 @@ impl PngValidator {
 		todo!()
 	}
 
-	/// In the PNG spec, a valid chunk type must have each byte match \[a-zA-Z\] - this method
-	/// checks that that is the case for a given chunk type (passed as byte slice)
+	/// In the PNG spec, a valid chunk type must have each byte match \[a-zA-Z\]. However, this could mean that plain text files are caught,
+	/// so instead of simply checking whether a chunk type is \[a-zA-Z\] we check it against a list of known PNG chunk types
 	fn validate_chunk_type(chunk_type: &[u8]) -> bool {
-		for b in chunk_type {
-			if !b.is_ascii_alphabetic() {
-				return false;
-			}
-		}
-
-		return true;
+		let chunk_type_u32 = u32::from_be_bytes(chunk_type.try_into().unwrap());
+		return PNG_CHUNK_TYPES.contains(&chunk_type_u32);
 	}
 
-	fn validate_chunk_data(chunk_type: u32, data: FragmentsIndex, requires_plte: &mut bool, plte_forbidden: &mut bool) -> FileValidationType {
+	fn validate_chunk_data(chunk_type: u32, data: FragmentsIndex, requires_plte: &mut bool, plte_forbidden: &mut bool) -> bool {
 		let spec_conformant = match chunk_type {
 			PNG_IHDR => {
-				let bit_depth: u8 = data[0];
-				let colour_type: u8 = data[17];
-				let compression_method: u8 = data[18];
-				let filter_method: u8 = data[19];
-				let interlace_method: u8 = data[20];
+				let bit_depth: u8 = data[8];
+				let colour_type: u8 = data[9];
+				let compression_method: u8 = data[10];
+				let filter_method: u8 = data[11];
+				let interlace_method: u8 = data[12];
 
 				if colour_type == 3 {
 					*requires_plte = true;
@@ -241,26 +302,8 @@ impl PngValidator {
 			}
 		};
 
-		if spec_conformant {
-			FileValidationType::Correct
-		} else {
-			FileValidationType::FormatError
-		}
+		spec_conformant
 	}
-
-	// /// Attempts to find the next chunk by skipping forward the cluster size bytes and attempting to validate the chunk found there, up until the `max_idx`.
-	// /// `fragmentation_idx` should be the point at which a chunk was expected to be found, but wasn't.
-	// fn attempt_reconstruction(frags: &mut Vec<Range<u64>>, fragmentation_idx: usize, prev_chunk_idx: usize, cluster_size: Option<usize>, max_idx: usize) -> Option<usize> {
-	// 	if let Some(cluster_size) = cluster_size {
-	// 		let mut chunk_idx = fragmentation_idx;
-	// 		chunk_idx += cluster_size;
-	// 		while chunk_idx < max_idx {
-	// 		}
-	// 		todo!()
-	// 	} else {
-	// 		None
-	// 	}
-	// }
 }
 
 impl FileValidator for PngValidator {
@@ -287,17 +330,20 @@ impl FileValidator for PngValidator {
 			file_data.len()
 		};
 
-		let mut fragments: Vec<Fragment> = Vec::new();
+		// Initialise fragments to contain the signature
+		let mut fragments: Vec<Fragment> = vec![ file_match.start_idx..(file_match.start_idx + 8) ];
 
 		loop {
-			let chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size);
+			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size);
+
+			fragments.append(&mut chunk_info.chunk_frags);
 
 			worst_chunk_validation = worst_chunk_validation.worst_of(chunk_info.validation_type);
 
 			if worst_chunk_validation == FileValidationType::Unrecognised {
 				break FileValidationInfo {
 					validation_type: FileValidationType::Partial,
-					fragments: vec![ (file_match.start_idx..(chunk_idx as u64 - 12)) ]
+					fragments
 				}
 			}
 
@@ -314,7 +360,7 @@ impl FileValidator for PngValidator {
 					}
 					seen_idat = true;
 				}
-				PNG_IEND => {
+				PNG_IEND => { // If we've reached the end of the image...
 					let validation_type = {
 						if seen_ihdr && seen_idat && ((!seen_plte && !requires_plte) || (seen_plte && !plte_forbidden)) && !idat_out_of_order {
 							FileValidationType::Correct
@@ -325,19 +371,29 @@ impl FileValidator for PngValidator {
 
 					break FileValidationInfo {
 						validation_type: validation_type.worst_of(worst_chunk_validation),
-						fragments: vec![ (file_match.start_idx..(chunk_idx as u64 + 12)) ]
+						fragments
 					};
 				}
 				_ => ()
 			}
 
 			prev_chunk_type = Some(chunk_info.chunk_type);
-			chunk_idx = chunk_info.next_chunk_idx as usize; // TODO: Check that this is correct
+
+			// If there is an available next_chunk_index from the chunk validation/reconstruction, then set the chunk_idx to that.
+			// Otherwise, we shouldn't/can't continue, so exit early with validation Partial
+			chunk_idx = if let Some(next_chunk_idx) = chunk_info.next_chunk_idx {
+				next_chunk_idx as usize
+			} else {
+				break FileValidationInfo {
+					validation_type: FileValidationType::Partial,
+					fragments
+				}
+			};
 
 			if (chunk_idx + 12) >= max_idx {
 				break FileValidationInfo {
-					validation_type: FileValidationType::Corrupt,
-					..Default::default()
+					validation_type: FileValidationType::Partial,
+					fragments
 				}
 			}
 		}
