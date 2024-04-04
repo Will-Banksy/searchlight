@@ -2,9 +2,9 @@ pub mod iter;
 pub mod str_parse;
 pub mod fragments_index;
 
-use std::{collections::BTreeMap, fs::File, io::{self, Seek}};
+use std::{collections::BTreeMap, fs::File, io::{self, Seek}, ops::Range};
 
-use crate::search::Match;
+use crate::{search::Match, validation::Fragment};
 
 #[cfg(test)]
 pub fn init_test_logger() {
@@ -85,6 +85,13 @@ pub fn estimate_cluster_size<'a>(headers: impl IntoIterator<Item = &'a Match>) -
 	} else {
 		None
 	}
+}
+
+/// Generates a list of lists of fragments, as candidates for reconstructing fragmented data in `fragmentation_range`. That is, for fragmented data in
+/// `fragmentation_range`, occupying a known `num_file_clusters` clusters, and being broken into `num_fragments` fragments, this function will generate
+/// all possible arrangements of clusters that the fragmented data can occupy, assuming that the fragmented data is in-order.
+fn generate_fragmentations(file_data: &[u8], cluster_size: usize, fragmentation_range: Range<usize>, num_file_clusters: usize, num_fragments: usize) -> Vec<Vec<Fragment>> {
+	todo!() // TODO: Implement an algorithm to do as described in the doc comment. Look at https://doi.org/10.1016/j.diin.2019.04.014 for inspiration if need be
 }
 
 #[cfg(test)]

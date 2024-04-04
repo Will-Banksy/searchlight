@@ -233,6 +233,8 @@ impl PngValidator {
 		// Load the (what we assume is) the CRC
 		let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
 
+		// TODO: Check these below calculations
+
 		// Calculate the fragmentation points
 		let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
 		let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset as u64 - 8, cluster_size) as usize;
@@ -245,8 +247,10 @@ impl PngValidator {
 		assert_eq!((next_chunk_type_offset - (unfrag_crc_offset + 8)) % cluster_size as usize, 0);
 		assert_eq!((fragmentation_end - fragmentation_start) % cluster_size as usize, 0);
 
-		// TODO: We've found the next chunk type (hopefully). Now, decode the stored CRC, and find the arrangements of clusters from the fragmentation start point to this point
-		//       that result in the calculated CRC matching the decoded CRC
+		// TODO: Use utils::generate_fragmentations (once implemented) and calculate the CRC over each fragmentation (including data outside of the fragmentation
+		//       area, like the chunk type and data in the same cluster) to find one that matches the stored CRC. If none can be found, return a failure
+
+		// utils::generate_fragmentations
 
 		todo!()
 	}
