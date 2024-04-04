@@ -89,8 +89,18 @@ pub fn estimate_cluster_size<'a>(headers: impl IntoIterator<Item = &'a Match>) -
 
 /// Generates a list of lists of fragments, as candidates for reconstructing fragmented data in `fragmentation_range`. That is, for fragmented data in
 /// `fragmentation_range`, occupying a known `num_file_clusters` clusters, and being broken into `num_fragments` fragments, this function will generate
-/// all possible arrangements of clusters that the fragmented data can occupy, assuming that the fragmented data is in-order.
+/// all possible arrangements of clusters that the fragmented data can occupy, assuming that the fragmented data is in-order. `num_fragments` will usually
+/// just be a guess, in an attempt to reconstruct the low-hanging fruit, so to speak
 fn generate_fragmentations(file_data: &[u8], cluster_size: usize, fragmentation_range: Range<usize>, num_file_clusters: usize, num_fragments: usize) -> Vec<Vec<Fragment>> {
+	if num_fragments == 1 && fragmentation_range.len() != num_file_clusters {
+		panic!("Error: There are no solutions for no. fragments = 1 where the fragmentation range is larger than the number of file clusters");
+	}
+	if num_fragments > 3 {
+		panic!("Error: Numbers of fragments over 3 is unsupported at this time");
+	}
+
+	// TODO: Implement a sliding window generator - For 2 fragments, the sliding window is the gap, for 3, it's the third fragment
+
 	todo!() // TODO: Implement an algorithm to do as described in the doc comment. Look at https://doi.org/10.1016/j.diin.2019.04.014 for inspiration if need be
 }
 
