@@ -1,3 +1,5 @@
+// TODO: Either use u64 or usize, don't use them interchangably. We probably have to stick to usize as memory maps would require that. Some fs operations require u64/i64 though (seeking)
+
 pub mod search;
 pub mod error;
 pub mod utils;
