@@ -1,3 +1,5 @@
+max_reconstruction_search_len = 0xfffffffffffffff
+
 [[file_type]]
 extension = "jpg"
 headers = [ '\xff\xd8\xff\xe0', '\xff\xd8\xff\xe1' ]
