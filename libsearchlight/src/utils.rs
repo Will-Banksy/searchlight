@@ -104,7 +104,7 @@ pub fn generate_fragmentations(cluster_size: usize, fragmentation_range: Range<u
 	assert_eq!(*clusters.remainder(), None);
 	assert_eq!(clusters.len(), fragmentation_range.len() / cluster_size);
 
-	// NOTE: While for now we're just tackling the simple bifragmented case, the problem of finding all possible in-order cases is laid out below
+	// NOTE: While for now we're just tackling the simple bifragmented case, the problem of finding all possible in-order cases is laid out below (with very possible errors and/or omissions)
 	//       In an ordered set of N numbers, we need to find G non-adjacent groups of continous elements such that the count of elements across each of the G groups is equal to C
 	//       1, 2, 3, 4, 5; N = 5, G = 1, C = 3
 	//       ->  [1, 2, 3], [2, 3, 4], [3, 4, 5]

@@ -7,6 +7,7 @@ use crate::{error::Error, search::{match_id_hash_slice_u16, pairing::MatchPart},
 
 #[derive(Deserialize, Debug)]
 pub struct SearchlightConfig {
+	pub max_reconstruction_search_len: Option<u64>,
 	#[serde(rename = "file_type")]
 	pub file_types: Vec<FileType>,
 }
@@ -184,6 +185,7 @@ impl FileType {
 impl Default for SearchlightConfig {
     fn default() -> Self {
         Self {
+			max_reconstruction_search_len: None,
 			file_types: Vec::new(),
 		}
     }

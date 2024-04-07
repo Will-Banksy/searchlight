@@ -1,4 +1,4 @@
-use crate::{search::pairing::MatchPair, utils::{self, fragments_index::FragmentsIndex}};
+use crate::{search::pairing::MatchPair, searchlight::config::SearchlightConfig, utils::{self, fragments_index::FragmentsIndex}};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
@@ -110,7 +110,7 @@ impl PngValidator {
 
 	/// Validates and reconstructs PNG chunk at `chunk_idx` in `file_data`, where `file_data` has a cluster size of `cluster_size`, so files can be assumed
 	/// to be allocated in blocks of `cluster_size`. `chunk_idx` refers to the very start of a chunk, where a chunk is \[`len`\]\[`type`\]\[`data`\]\[`crc`\].
-	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, file_data: &[u8], chunk_idx: usize, cluster_size: u64) -> ChunkValidationInfo {
+	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, file_data: &[u8], chunk_idx: usize, cluster_size: u64, max_search_len: u64) -> ChunkValidationInfo {
 		/// Macro to make extracting fields a bit more readable: file_data[(chunk_idx + 4)..(chunk_idx + 8)] -> chunk_data[4, 8]
 		macro_rules! chunk_data {
 			[$start: expr, $end: expr] => {
@@ -159,7 +159,7 @@ impl PngValidator {
 			}
 
 			// Attempt to reconstruct the chunk
-			let recons_info = Self::reconstruct_chunk(file_data, chunk_idx, chunk_data_len as usize, cluster_size);
+			let recons_info = Self::reconstruct_chunk(file_data, chunk_idx, chunk_data_len as usize, cluster_size, max_search_len);
 
 			match recons_info {
 				ChunkReconstructionInfo::Failure => {
@@ -208,7 +208,7 @@ impl PngValidator {
 	/// Attempts to reconstruct a fragmented PNG chunk, assuming that the length, chunk type, and CRC are not fragmented and that all
 	/// fragments of the chunk are in-order (limitations) by searching forwards for a valid chunk type, decoding the CRC that should occur just before it,
 	/// and enumerating the possible cluster arrangements between the start of the chunk data and the decoded CRC for a matching calculated CRC
-	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_data_len: usize, cluster_size: u64) -> ChunkReconstructionInfo {
+	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_data_len: usize, cluster_size: u64, max_search_len: u64) -> ChunkReconstructionInfo {
 		let unfrag_crc_offset = chunk_idx + chunk_data_len + 8;
 
 		let mut next_chunk_type_offset = unfrag_crc_offset + 8;
@@ -221,15 +221,13 @@ impl PngValidator {
 			next_chunk_type_offset += cluster_size as usize;
 
 			// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with failure
-			if next_chunk_type_offset + 4 >= file_data.len() { // BUG: We're not paying any attention to file max size here. We should also maybe add something additional, like max_reconstruction_search_length
+			if next_chunk_type_offset + 4 >= file_data.len() || next_chunk_type_offset + 4 >= max_search_len as usize { // BUG: We're still not paying attention to the max file size, butwe've got a max search len at least
 				return ChunkReconstructionInfo::Failure;
 			}
 		}
 
 		// Load the (what we assume is) the CRC
 		let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
-
-		// TODO: Check these below calculations
 
 		// Calculate the fragmentation points
 		let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
@@ -338,7 +336,7 @@ impl PngValidator {
 
 impl FileValidator for PngValidator {
 	// Written using https://www.w3.org/TR/png-3/
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
 		let mut chunk_idx = file_match.start_idx as usize + 8;
 
 		let mut requires_plte = false;
@@ -364,7 +362,7 @@ impl FileValidator for PngValidator {
 		let mut fragments: Vec<Fragment> = vec![ file_match.start_idx..(file_match.start_idx + 8) ];
 
 		loop {
-			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size);
+			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size, config.max_reconstruction_search_len.unwrap_or(u64::MAX));
 
 			fragments.append(&mut chunk_info.chunk_frags);
 			utils::simplify_ranges(&mut fragments);

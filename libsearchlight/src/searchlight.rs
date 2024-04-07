@@ -171,7 +171,7 @@ impl Searchlight {
 			let validator = DelegatingValidator::new();
 
 			for pot_file in match_pairs {
-				let validation = validator.validate(&mmap, &pot_file, cluster_size);
+				let validation = validator.validate(&mmap, &pot_file, cluster_size, &self.config);
 
 				debug!("Potential file at {}-{} (type id {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
 
