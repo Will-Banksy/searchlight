@@ -137,14 +137,18 @@ impl Searchlight {
 			// A None for cluster size here will indicate that the headers appear to be mostly not allocated on any usual cluster boundaries, or that
 			// has been passed in as the case
 			let cluster_size = info.cluster_size.unwrap_or_else(|| {
-				estimate_cluster_size(matches.iter().filter(|m| {
+				let est = estimate_cluster_size(matches.iter().filter(|m| {
 					if let Some((_, _, part)) = id_ftype_map.get(&m.id) {
 						*part == MatchPart::Header
 					} else {
 						assert!(false);
 						panic!() // assert!(false) is not detected as a control flow terminator/does not return ! but is more semantically correct
 					}
-				})).unwrap_or(1) // A cluster size of 1 is effectively the same as not being clustered
+				})).unwrap_or(1); // A cluster size of 1 is effectively the same as not being clustered
+
+				info!("Calculated cluster size estimate: {est}");
+
+				est
 			});
 
 			if log_enabled!(Level::Trace) {

@@ -1,5 +1,3 @@
-use log::trace;
-
 use crate::{search::pairing::MatchPair, utils::{self, fragments_index::FragmentsIndex}};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
@@ -161,7 +159,7 @@ impl PngValidator {
 			}
 
 			// Attempt to reconstruct the chunk
-			let recons_info = Self::reconstruct_chunk(file_data, chunk_idx, chunk_type, chunk_data_len as usize, cluster_size);
+			let recons_info = Self::reconstruct_chunk(file_data, chunk_idx, chunk_data_len as usize, cluster_size);
 
 			match recons_info {
 				ChunkReconstructionInfo::Failure => {
@@ -210,16 +208,16 @@ impl PngValidator {
 	/// Attempts to reconstruct a fragmented PNG chunk, assuming that the length, chunk type, and CRC are not fragmented and that all
 	/// fragments of the chunk are in-order (limitations) by searching forwards for a valid chunk type, decoding the CRC that should occur just before it,
 	/// and enumerating the possible cluster arrangements between the start of the chunk data and the decoded CRC for a matching calculated CRC
-	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_type: u32, chunk_data_len: usize, cluster_size: u64) -> ChunkReconstructionInfo {
+	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_data_len: usize, cluster_size: u64) -> ChunkReconstructionInfo {
 		let unfrag_crc_offset = chunk_idx + chunk_data_len + 8;
 
-		let mut next_chunk_type_offset = unfrag_crc_offset + 4;
+		let mut next_chunk_type_offset = unfrag_crc_offset + 8;
 
 		// Find the next valid chunk type
 		// NOTE: Currently, we're checking against a list of known valid chunk types. This can't be exhaustive though so will miss valid chunks
 		//       Perhaps an alternative method that could stop text files being counted be checking that the CRC and length are not ASCII (alphabetical?)?
 		//       Course, they may be in a valid file, but are unlikely to be
-		while !Self::validate_chunk_type(&file_data[next_chunk_type_offset..4]) {
+		while !Self::validate_chunk_type(&file_data[next_chunk_type_offset..(next_chunk_type_offset + 4)]) {
 			next_chunk_type_offset += cluster_size as usize;
 
 			// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with failure
@@ -227,8 +225,6 @@ impl PngValidator {
 				return ChunkReconstructionInfo::Failure;
 			}
 		}
-
-		trace!("Omg we got to the icky bit");
 
 		// Load the (what we assume is) the CRC
 		let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
@@ -247,12 +243,42 @@ impl PngValidator {
 		assert_eq!((next_chunk_type_offset - (unfrag_crc_offset + 8)) % cluster_size as usize, 0);
 		assert_eq!((fragmentation_end - fragmentation_start) % cluster_size as usize, 0);
 
-		// TODO: Use utils::generate_fragmentations (once implemented) and calculate the CRC over each fragmentation (including data outside of the fragmentation
-		//       area, like the chunk type and data in the same cluster) to find one that matches the stored CRC. If none can be found, return a failure
+		let fragmentations = utils::generate_fragmentations(cluster_size as usize, fragmentation_start..fragmentation_end, clusters_needed);
 
-		// utils::generate_fragmentations
+		let mut correct_fragmentation = None;
 
-		todo!()
+		// Initialise CRC hasher with the chunk type, and chunk data up to the fragmentation point
+		let mut hasher = crc32fast::Hasher::new();
+		hasher.update(&file_data[(chunk_idx + 4)..fragmentation_start]);
+
+		for data_frags in fragmentations {
+			// Clone the hasher and hash the fragments
+			let mut hasher = hasher.clone();
+			for range in &data_frags {
+				hasher.update(&file_data[range.start as usize..range.end as usize]);
+			}
+
+			// Finish hashing with the chunk data from the fragmentation end to the stored CRC
+			hasher.update(&file_data[fragmentation_end..(next_chunk_type_offset - 8)]);
+
+			// Then check whether the calculated CRC matches the stored one
+			let calc_crc = hasher.finalize();
+			if calc_crc == stored_crc {
+				correct_fragmentation = Some(data_frags);
+				break;
+			}
+		}
+
+		if let Some(mut data_frags) = correct_fragmentation {
+			data_frags.insert(0, chunk_idx as u64..fragmentation_start as u64);
+			data_frags.push(fragmentation_end as u64..(next_chunk_type_offset - 4) as u64);
+
+			utils::simplify_ranges(&mut data_frags);
+
+			ChunkReconstructionInfo::Success { chunk_frags: data_frags, next_chunk_idx: next_chunk_type_offset as u64 - 4 }
+		} else {
+			ChunkReconstructionInfo::Failure
+		}
 	}
 
 	/// In the PNG spec, a valid chunk type must have each byte match \[a-zA-Z\]. However, this could mean that plain text files are caught,
@@ -341,6 +367,7 @@ impl FileValidator for PngValidator {
 			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size);
 
 			fragments.append(&mut chunk_info.chunk_frags);
+			utils::simplify_ranges(&mut fragments);
 
 			worst_chunk_validation = worst_chunk_validation.worst_of(chunk_info.validation_type);
 

@@ -3,7 +3,7 @@ pub mod str_parse;
 pub mod fragments_index;
 pub mod subrange;
 
-use std::{collections::BTreeMap, fs::File, io::{self, Seek}, num::NonZeroUsize, ops::Range};
+use std::{collections::BTreeMap, fs::File, io::{self, Seek}, ops::Range};
 
 use crate::{search::Match, utils::subrange::IntoSubrangesExact, validation::Fragment};
 
@@ -89,46 +89,79 @@ pub fn estimate_cluster_size<'a>(headers: impl IntoIterator<Item = &'a Match>) -
 }
 
 /// Generates a list of lists of fragments, as candidates for reconstructing fragmented data in `fragmentation_range`. That is, for fragmented data in
-/// `fragmentation_range`, occupying a known `num_file_clusters` clusters, and being broken into `num_fragments` fragments, this function will generate
-/// all possible arrangements of clusters that the fragmented data can occupy, assuming that the fragmented data is in-order. `num_fragments` will usually
-/// just be a guess, in an attempt to reconstruct the low-hanging fruit, so to speak.
+/// `fragmentation_range`, occupying a known `num_file_clusters` clusters, this function will generate some possible arrangements of clusters that the
+/// fragmented data can occupy, assuming that the fragmented data is in-order. To reiterate, this function is non-exhaustive, but aims to tackle common
+/// cases, such as bifragmentation/a single gap.
+///
 /// # Panics
-/// Currently this function only supports `num_fragments` of 3 or under, and will panic if given a higher number. Will also panic if the fragmentation range
-/// is not on cluster boundaries.
-fn generate_fragmentations(cluster_size: usize, fragmentation_range: Range<usize>, num_file_clusters: NonZeroUsize, num_fragments: usize) -> Vec<Vec<Fragment>> {
+/// Panics if the fragmentation range is not on cluster boundaries.
+pub fn generate_fragmentations(cluster_size: usize, fragmentation_range: Range<usize>, num_file_clusters: usize) -> Vec<Vec<Fragment>> {
 	assert_eq!(fragmentation_range.start % cluster_size, 0);
 	assert_eq!(fragmentation_range.end % cluster_size, 0);
 
-	if num_fragments == 1 && (fragmentation_range.len() / cluster_size) != num_file_clusters.get() {
-		panic!("Error: There are no solutions for no. fragments = 1 where the fragmentation range is larger than the number of file clusters");
+	// Get the range for each cluster
+	let clusters = fragmentation_range.clone().into_subranges_exact(cluster_size);
+	assert_eq!(*clusters.remainder(), None);
+	assert_eq!(clusters.len(), fragmentation_range.len() / cluster_size);
+
+	// NOTE: While for now we're just tackling the simple bifragmented case, the problem of finding all possible in-order cases is laid out below
+	//       In an ordered set of N numbers, we need to find G non-adjacent groups of continous elements such that the count of elements across each of the G groups is equal to C
+	//       1, 2, 3, 4, 5; N = 5, G = 1, C = 3
+	//       ->  [1, 2, 3], [2, 3, 4], [3, 4, 5]
+	//       1, 2, 3, 4, 5; N = 5, G = 2, C = 3
+	//       ->  [1, 2][4], [1, 2][5], [2, 3][5], [1][3, 4], [1][4, 5], [2][4, 5]
+	//
+	//       Number of solutions = G * C (N should factor in this...?)
+
+	let mut gap_idx = 0;
+	let gap_len = clusters.len() - num_file_clusters;
+
+	let mut res = Vec::new();
+
+	while gap_idx <= clusters.len() - gap_len {
+		// Get all the clusters that are not in the gap, and simplify
+		let mut file_clusters: Vec<Range<u64>> = clusters.iter().enumerate().filter(|(i, _)| *i < gap_idx || *i >= (gap_idx + gap_len)).map(|(_, c)| c.start as u64..c.end as u64).collect();
+		simplify_ranges(&mut file_clusters);
+
+		res.push(file_clusters);
+
+		gap_idx += 1;
 	}
 
-	match num_fragments {
-		1 => {
-			// Num_fragmentations = 1 is kinda a no-op
-			vec![vec![fragmentation_range.start as u64..fragmentation_range.end as u64]]
-		}
-		2..=3 => {
-			let clusters = fragmentation_range.into_subranges_exact(cluster_size);
-			assert_eq!(*clusters.remainder(), None);
-
-			todo!()
-		}
-		_ => {
-			panic!("Error: Numbers of fragments over 3 is unsupported at this time");
-		}
-	}
-
-	// TODO: Implement a sliding window generator - For 2 fragments, the sliding window is the gap, for 3, it's the third fragment
-
-	// TODO: Implement an algorithm to do as described in the doc comment. Look at https://doi.org/10.1016/j.diin.2019.04.014 for inspiration if need be
+	res
 }
 
-// TODO: Need a function to merge adjacent fragments (simplification)
+/// Takes a vec of assumed in-order, non-overlapping ranges, and where the end of a range is equal to the start of the next range, merges
+/// the two ranges into one
+pub fn simplify_ranges<T>(ranges: &mut Vec<Range<T>>) where T: PartialEq {
+	let mut i = 1;
+	while i < ranges.len() {
+		if ranges[i - 1].end == ranges[i].start {
+			ranges[i - 1].end = ranges.remove(i).end;
+			i -= 1;
+		}
+
+		i += 1;
+	}
+}
+
+/// Combines a list of ranges of indexes and a slice of data that is referred to by those indexes to produce a list of slices of that data
+// NOTE: Is this useful?
+pub fn idxs_to_slice<'a, T>(data: &'a [T], idxs: &[Range<usize>]) -> Vec<&'a [T]> {
+	let mut res = Vec::with_capacity(idxs.len());
+
+	for range in idxs {
+		res.push(&data[range.clone()])
+	}
+
+	res
+}
 
 #[cfg(test)]
 mod test {
     use crate::{search::Match, utils::estimate_cluster_size};
+
+    use super::{generate_fragmentations, simplify_ranges};
 
 	#[test]
 	fn test_cluster_size_estimates() {
@@ -153,8 +186,60 @@ mod test {
 
 		let est_cs = estimate_cluster_size(headers.iter());
 
-		// println!("est_cs: {:?}", est_cs);
-
 		assert_eq!(est_cs, Some(1024))
+	}
+
+	#[test]
+	fn test_generate_fragmentations() {
+		let cluster_size = 2;
+
+		let fragmentation_range = 10..20;
+
+		let num_file_clusters = 3;
+
+		// 10..12, 12..14, 14..16, 16..18, 18..20
+
+		let expected = vec![
+			vec![
+				14..20
+			],
+			vec![
+				10..12,
+				16..20
+			],
+			vec![
+				10..14,
+				18..20
+			],
+			vec![
+				10..16
+			]
+		];
+
+		let calc_fragmentations = generate_fragmentations(cluster_size, fragmentation_range, num_file_clusters);
+
+		assert_eq!(calc_fragmentations, expected);
+	}
+
+	#[test]
+	fn test_simplify_ranges() {
+		let mut test_data = vec![
+			0..5,
+			5..10,
+			11..15,
+			14..20,
+			20..30,
+			30..40
+		];
+
+		let expected = vec![
+			0..10,
+			11..15,
+			14..40
+		];
+
+		simplify_ranges(&mut test_data);
+
+		assert_eq!(test_data, expected);
 	}
 }
