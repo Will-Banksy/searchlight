@@ -3,7 +3,7 @@ max_reconstruction_search_len = 0xfffffffffffffff
 [[file_type]]
 extension = "jpg"
 headers = [ '\xff\xd8\xff\xe0', '\xff\xd8\xff\xe1' ]
-footers = [ '\xff\xd9' ]
+# footers = [ '\xff\xd9' ]
 max_len = 10485760
 pairing = "next"
 type_id = "jpeg"
@@ -11,7 +11,7 @@ type_id = "jpeg"
 [[file_type]]
 extension = "png"
 headers = [ '\x89\x50\x4e\x47\x0d\x0a\x1a\x0a' ]
-footer = [ '\x49\x45\x4e\x44\xae\x42\x60\x82' ]
+footers = [ '\x49\x45\x4e\x44\xae\x42\x60\x82' ]
 max_len = 10485760
 pairing = "next"
 type_id = "png"

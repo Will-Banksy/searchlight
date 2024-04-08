@@ -1,0 +1,31 @@
+block_size = 4096
+corpus = "../searchlight/test_data/corpus"
+
+[scenarios.nonfragmented]
+path = "../searchlight/test_data/stoneblock_nonfragmented.dat"
+files = [
+	{ path = "3.png", fragments = 1 },
+	{ path = "7.zip", fragments = 1 },
+	{ path = "9.png", fragments = 1 },
+	{ path = "files.jpg", fragments = 1 },
+	{ path = "g6-1.jpg", fragments = 1 }
+]
+filler = "R"
+layout = "Z, 1.1, 2.1, 2.1, 3.1, Z, Z, 1.1, 4.1, R, 5.1"
+
+[scenarios.png_fragmented]
+path = "../searchlight/test_data/stoneblock_fragmented.dat"
+files = [
+	{ path = "3.png", fragments = 3 },
+	{ path = "9.png", fragments = 2 }
+]
+filler = "Z"
+layout = "1.1, R, 1.2, R, 2.1, 1.3, 2.2"
+
+[scenarios.jpeg_fragmented]
+path = "../searchlight/test_data/stoneblock_fragmented.dat"
+files = [
+	{ path = "files.jpg", fragments = 3 }
+]
+filler = "Z"
+layout = "1.1, R, 1.2, Z, 1.3, R, 1.1, 1.3"

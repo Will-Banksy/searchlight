@@ -47,7 +47,7 @@ See [Benchmarking.md](Benchmarking.md) for benchmarks & performance notes.
 
 ## Test Data
 
-In the test_data/corpus directory are some sample files for testing the tool with. My test image generation tool [stoneblock](https://github.com/Will-Banksy/stoneblock) currently contains a config file that uses these test files to build a test image (this may be removed or changed in the future however).
+In the test_data/corpus directory are some sample files for testing the tool with, and there is a config file [Stoneblock.toml](Stoneblock.toml) for usage with my test image generation tool [stoneblock](https://github.com/Will-Banksy/stoneblock) that uses these test files to build a test image.
 
 3.png, 7.zip, 9.png, and g6-1.jpg are from or derived from data provided by Digital Corpora (Garfinkel *et al*, 2009), in particular the disk image "[nps-2009-canon2](https://corp.digitalcorpora.org/corpora/drives/nps-2009-canon2)".
 

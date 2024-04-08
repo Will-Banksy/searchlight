@@ -5,7 +5,7 @@ use clap_verbosity_flag::InfoLevel;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
-pub struct Args {
+pub struct Args { // TODO: Add a "quick search" option to only look for headers at the start of clusters... but still need to find footers...
 	#[command(flatten)]
 	pub verbose: clap_verbosity_flag::Verbosity<InfoLevel>,
 	/// Path to the input disk image file to attempt to recover data from
