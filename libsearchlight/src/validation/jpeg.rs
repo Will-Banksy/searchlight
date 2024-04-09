@@ -1,5 +1,3 @@
-use log::warn;
-
 use crate::{classifiers, search::pairing::MatchPair, searchlight::config::SearchlightConfig, utils};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
@@ -55,14 +53,12 @@ impl JpegValidator {
 
 			match classification_info {
 				(false, None) => {
-					warn!("Cluster at idx {cluster_idx:#x} was classified as NOT JPEG");
 					()
 				}
 				(true, None) => {
 					fragments.push((cluster_idx as u64)..((cluster_idx + cluster_size) as u64));
 				}
 				(true, Some(next_marker)) => {
-					warn!("Cluster at idx {cluster_idx:#x} was classified as YES JPEG and END at {:#x}", next_marker + cluster_idx);
 					fragments.push((cluster_idx as u64)..(next_marker + cluster_idx) as u64);
 					utils::simplify_ranges(&mut fragments);
 
@@ -117,21 +113,16 @@ impl FileValidator for JpegValidator {
 						fragments
 					}
 				} else if file_data[i + 1] == JPEG_SOS {
-					warn!("Attempting JPEG reconstruction...");
-
 					// Since we have no way of knowing, really, we treat the following data as if it might be fragmented
 					let recons_info = Self::reconstruct_scan_data(file_data, i, cluster_size as usize, config);
 
 					match recons_info {
 						JpegScanReconstructionInfo::Success { mut chunk_frags, next_chunk_idx } => {
-							warn!("JPEG reconstruction success! Next chunk idx: {next_chunk_idx:#x}");
 							fragments.append(&mut chunk_frags);
 							i = next_chunk_idx;
 						},
 						JpegScanReconstructionInfo::Failure { failure_idx } => {
 							fragments.push(i as u64..failure_idx as u64);
-
-							warn!("JPEG reconstruction failure");
 
 							break FileValidationInfo {
 								validation_type: FileValidationType::Partial,
@@ -156,7 +147,6 @@ impl FileValidator for JpegValidator {
 				}
 			} else { // We are not on a marker - We should be. Something has gone wrong - but what, is the difficulty
 				// If at least one of the mandatory markers has been seen, this is likely a partial file
-				warn!("JPEG ended up not on a marker...");
 				if seen_appn || seen_sofn {
 					break FileValidationInfo {
 						validation_type: FileValidationType::Partial,

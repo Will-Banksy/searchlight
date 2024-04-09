@@ -170,6 +170,8 @@ impl Searchlight {
 
 			let validator = DelegatingValidator::new();
 
+			let mut num_carved_files = 0;
+
 			for pot_file in match_pairs {
 				let validation = validator.validate(&mmap, &pot_file, cluster_size, &self.config);
 
@@ -203,10 +205,12 @@ impl Searchlight {
 					file.write_vectored(
 						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start as usize..frag.end as usize])).collect::<Vec<IoSlice>>()
 					)?;
+
+					num_carved_files += 1;
 				}
 			}
 
-			info!("Successfully validated files exported to {}", output_dir.as_ref());
+			info!("{} successfully validated files exported to {}", num_carved_files, output_dir.as_ref());
 
 			Ok(true)
 		} else {

@@ -53,10 +53,6 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 					}
 				}
 				val @ 0xd0..=0xd7 => {
-					if first_ffxx.is_some() { // RST markers shouldn't be outside of scan data, and i
-						rst_marker_ordering_valid = false;
-					}
-
 					if let Some(curr_rst) = curr_rst_marker {
 						if val == curr_rst + 1 {
 							curr_rst_marker = Some(val);
@@ -68,7 +64,9 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 					}
 				}
 				_ => {
-					first_ffxx = Some(i);
+					if first_ffxx.is_none() {
+						first_ffxx = Some(i);
+					}
 				}
 			}
 		}
