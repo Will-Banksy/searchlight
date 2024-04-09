@@ -4,7 +4,7 @@ pub mod zip;
 
 use std::{collections::HashMap, ops::Range};
 
-use crate::{search::pairing::MatchPair, searchlight::config::{FileTypeId, SearchlightConfig}};
+use crate::{search::{pairing::MatchPair, Match}, searchlight::config::{FileTypeId, SearchlightConfig}};
 
 use self::{jpeg::JpegValidator, png::PngValidator, zip::ZipValidator};
 
@@ -15,7 +15,7 @@ pub trait FileValidator {
 	///
 	/// `cluster_size` is given to aid reconstruction logic. It must not be assumed that cluster_size is any sensible value, as users can pass in anything. Additionally, a cluster size of
 	/// 1 indicates that files in the image aren't allocated on cluster boundaries
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo;
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo;
 }
 
 pub type Fragment = Range<u64>;
@@ -98,9 +98,9 @@ impl DelegatingValidator {
 }
 
 impl FileValidator for DelegatingValidator {
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
 		if let Some(validator) = self.validators.get(&file_match.file_type.type_id) {
-			validator.validate(file_data, file_match, cluster_size, config)
+			validator.validate(file_data, file_match, all_matches, cluster_size, config)
 		} else {
 			FileValidationInfo {
 				validation_type: FileValidationType::Unanalysed,

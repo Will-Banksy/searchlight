@@ -37,6 +37,8 @@ The reconstruction strategy implemented is based on that presented by Hilgert *e
 
 The JPEG validator (libsearchlight/src/validation/jpeg.rs) works very similarly to the PNG validator - By reading chunk lengths, and skipping forward. JPEG files don't have CRCs like PNGs, so metadata is relied upon to perform the validation. The main thing checked for JPEG files is that the necessary chunks are present.
 
+Fragmentation in JPEG files is only handled in the entropy-coded scan data chunk - A classifier is used to classify clusters after the SOS marker (and look for terminating markers at the same time) to figure out which clusters are JPEG or not, and so, assuming the JPEG fragments are in-order, this approach can handle any number of fragments. However, JPEG data from a different file mixed in with the data from the current file can cause image corruption, as the validator/classifier cannot distinguish between JPEG data for the current file and JPEG data for a different file.
+
 ### ZIP Validator
 
 The ZIP validator (libsearchlight/src/validation/zip.rs) works by jumping to the End Of Central Directory (EOCD), jumping backwards to the supposed Central Directory (CD), decoding that, and then jumping further backwards to each file header indicated by the CD, and calculating and comparing CRCs for each file header.

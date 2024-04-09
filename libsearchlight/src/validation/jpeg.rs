@@ -1,4 +1,4 @@
-use crate::{classifiers, search::pairing::MatchPair, searchlight::config::SearchlightConfig, utils};
+use crate::{classifiers, search::{pairing::MatchPair, Match}, searchlight::config::SearchlightConfig, utils};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
@@ -80,7 +80,7 @@ impl JpegValidator {
 impl FileValidator for JpegValidator {
 	// Written using https://www.w3.org/Graphics/JPEG/jfif3.pdf,
 	// https://www.w3.org/Graphics/JPEG/itu-t81.pdf and https://stackoverflow.com/questions/32873541/scanning-a-jpeg-file-for-markers
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
 		let start = file_match.start_idx as usize;
 
 		// Mandatory segments for a complete JPEG file

@@ -1,4 +1,4 @@
-use crate::{search::pairing::MatchPair, searchlight::config::SearchlightConfig, utils::{self, fragments_index::FragmentsIndex}};
+use crate::{search::{pairing::MatchPair, Match}, searchlight::config::SearchlightConfig, utils::{self, fragments_index::FragmentsIndex}};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
@@ -336,7 +336,7 @@ impl PngValidator {
 
 impl FileValidator for PngValidator {
 	// Written using https://www.w3.org/TR/png-3/
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
 		let mut chunk_idx = file_match.start_idx as usize + 8;
 
 		let mut requires_plte = false;
