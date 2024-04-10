@@ -1,4 +1,4 @@
-use crate::{search::{pairing::MatchPair, Match}, searchlight::config::SearchlightConfig};
+use crate::{search::{match_id_hash_slice, pairing::MatchPair, Match}, searchlight::config::SearchlightConfig, utils};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
@@ -7,9 +7,10 @@ const ZIP_CENTRAL_DIR_HEADER_SIG: u32 = 0x02014b50;
 const ZIP_DATA_DESCRIPTOR_SIG: u32 = 0x08074b50;
 
 /// Not a constant directly of ZIP files, but the match id of the local file header signature
-const ZIP_LOCAL_FILE_HEADER_SIG_ID: u64 = 0x04034b50; // TODO: Calculate this
+const ZIP_LOCAL_FILE_HEADER_SIG_ID: u64 = 13969706556131510235; // TODO: Check this
 
 const ZIP_LOCAL_FILE_HEADER_SIZE: usize = 30;
+const ZIP_DATA_DESCRIPTOR_SIZE: usize = 12;
 const ZIP_CENTRAL_DIR_HEADER_SIZE: usize = 46;
 const ZIP_END_OF_CENTRAL_DIR_SIZE: usize = 22;
 
@@ -28,9 +29,24 @@ pub struct ZipValidator;
 // 	data_size: usize
 // }
 
+// NOTE: This is just some code to calculate and display the match id of ZIP local file header signatures. Keeping this here for future reference just in case I fucked up the endianness
+#[test]
+fn calc_zip_local_file_header_sig_id() {
+	let sig = ZIP_LOCAL_FILE_HEADER_SIG.to_le_bytes();
+	println!("ZIP local file header signature match id: {}", match_id_hash_slice(&sig));
+}
+
 struct LocalFileValidationInfo {
 	validation_type: FileValidationType,
 	frags: Vec<Fragment>
+}
+
+enum FileDataReconstructionInfo {
+	Success {
+		data_frags: Vec<Fragment>,
+		end_idx: usize
+	},
+	Failure
 }
 
 struct CentralDirectoryFileHeader<'a> {
@@ -44,11 +60,18 @@ struct CentralDirectoryFileHeader<'a> {
 
 struct LocalFileHeader<'a> {
 	idx: usize,
+	has_data_descriptor: bool,
 	crc: u32,
 	compressed_size: u32,
 	file_name: &'a [u8],
 	extra_field: &'a [u8],
 	offset: u32, // From CD
+	len: usize
+}
+
+struct DataDescriptor {
+	crc: u32,
+	compressed_size: u32,
 	len: usize
 }
 
@@ -82,8 +105,8 @@ impl<'a> CentralDirectoryFileHeader<'a> {
 	fn same(&self, lfhdr: &LocalFileHeader) -> bool {
 		// If the local file header CRC and compressed size are 0, then a data descriptor is present which contains this information instead.
 		// In those cases, we're just gonna have to hope that the file name and extra field are good enough indicators
-		(self.crc == lfhdr.crc || (lfhdr.crc == 0x00000000 && lfhdr.compressed_size == 0)) &&
-		(self.compressed_size == lfhdr.compressed_size || (lfhdr.crc == 0x00000000 && lfhdr.compressed_size == 0)) &&
+		(self.crc == lfhdr.crc || lfhdr.has_data_descriptor) &&
+		(self.compressed_size == lfhdr.compressed_size || lfhdr.has_data_descriptor) &&
 		self.file_name == lfhdr.file_name &&
 		self.extra_field == lfhdr.extra_field
 	}
@@ -97,6 +120,9 @@ impl<'a> LocalFileHeader<'a> {
 			return None;
 		}
 
+		let flags = u16::from_le_bytes(data[0x06..0x08].try_into().unwrap());
+		let has_data_descriptor = (flags & ZIP_DATA_DESCRIPTOR_FLAG) > 0;
+
 		let crc = u32::from_le_bytes(data[0x0e..0x12].try_into().unwrap());
 		let compressed_size = u32::from_le_bytes(data[0x12..0x16].try_into().unwrap());
 		let file_name_len = u16::from_le_bytes(data[0x1a..0x1c].try_into().unwrap()) as usize;
@@ -107,6 +133,7 @@ impl<'a> LocalFileHeader<'a> {
 
 		Some(LocalFileHeader {
 			idx,
+			has_data_descriptor,
 			crc,
 			compressed_size,
 			file_name,
@@ -122,6 +149,32 @@ impl<'a> LocalFileHeader<'a> {
 			compressed_size: cdfh.compressed_size,
 			offset: cdfh.file_header_offset,
 			..self
+		}
+	}
+}
+
+impl DataDescriptor {
+	fn decode(data: &[u8]) -> Self {
+		let first_field = u32::from_le_bytes(data[0x00..0x04].try_into().unwrap());
+
+		if first_field == ZIP_DATA_DESCRIPTOR_SIG {
+			let crc = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
+			let compressed_size = u32::from_le_bytes(data[0x08..0x0c].try_into().unwrap());
+
+			DataDescriptor {
+				crc,
+				compressed_size,
+				len: ZIP_DATA_DESCRIPTOR_SIZE + 4
+			}
+		} else {
+			let crc = first_field;
+			let compressed_size = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
+
+			DataDescriptor {
+				crc,
+				compressed_size,
+				len: ZIP_DATA_DESCRIPTOR_SIZE
+			}
 		}
 	}
 }
@@ -239,11 +292,63 @@ impl ZipValidator {
 
 		let unfrag_crc = crc32fast::hash(&file_data[data_idx..(data_idx + header.compressed_size as usize)]);
 
-		if unfrag_crc != header.crc {
-			todo!(); // TODO: In this case, fragmentation is likely. Take an approach for reconstructing the file data like the PNG one. Remember to take data descriptors into account
+		let unfrag_end = if header.has_data_descriptor {
+			let data_descriptor_idx = data_idx + header.compressed_size as usize;
+			let data_descriptor = DataDescriptor::decode(&file_data[data_descriptor_idx..]);
+
+			// If the data descriptor CRC is equal to the file content CRC, and the CRC from the central directory is not equal to the content CRC, then return with unrecognised. This
+			// will, admittedly, be the case barely any of the time since all of the compressed size, name, and extra field will have to be the same between this file and a file in the
+			// central directory
+			if unfrag_crc != header.crc && unfrag_crc == data_descriptor.crc {
+				return LocalFileValidationInfo {
+					validation_type: FileValidationType::Unrecognised,
+					frags: Vec::new()
+				}
+			}
+
+			data_idx + header.compressed_size as usize + data_descriptor.len
 		} else {
-			todo!(); // TODO: Just return the fragment for the segment
+			data_idx + header.compressed_size as usize
+		};
+
+		if unfrag_crc != header.crc { // TODO: In this case, fragmentation is likely. Take an approach for reconstructing the file data like the PNG one. Remember to take data descriptors into account
+			let recons_info = Self::reconstruct_file_data(file_data, header, data_idx, next_header_idx);
+
+			match recons_info {
+				FileDataReconstructionInfo::Success { mut data_frags, end_idx } => {
+					let header_frag = header.idx..data_idx;
+					data_frags.insert(0, header_frag);
+
+					if header.has_data_descriptor {
+						let data_descriptor = DataDescriptor::decode(&file_data[end_idx..]);
+						let data_desc_frag = end_idx..(end_idx + data_descriptor.len);
+						data_frags.push(data_desc_frag);
+					}
+
+					utils::simplify_ranges(&mut data_frags);
+
+					LocalFileValidationInfo {
+						validation_type: FileValidationType::Correct,
+						frags: data_frags
+					}
+				}
+				FileDataReconstructionInfo::Failure => {
+					LocalFileValidationInfo {
+						validation_type: FileValidationType::Partial,
+						frags: vec![ (header.idx as usize..unfrag_end) ]
+					}
+				}
+			}
+		} else {
+			LocalFileValidationInfo {
+				validation_type: FileValidationType::Correct,
+				frags: vec![ (header.idx as usize..unfrag_end) ]
+			}
 		}
+	}
+
+	fn reconstruct_file_data(file_data: &[u8], header: &LocalFileHeader, data_idx: usize, next_header_idx: usize) -> FileDataReconstructionInfo {
+		todo!(); // TODO: Basically do the same as done for reconstructing PNG chunks
 	}
 }
 
@@ -330,11 +435,16 @@ impl FileValidator for ZipValidator {
 				} // NOTE: We should never come across a local file header that doesn't have the correct signature, assuming it has been set correctly in the config. That's a thing tbf, the config not really being a config in the case where we have code to handle a file type...
 			}
 
+			lfhs.sort_by_key(|header| header.offset);
+
 			lfhs
 		};
 
-		let frag_eocd = eocd_idx..(eocd_idx + eocd_len);
-		let frag_cd = central_directory_idx..eocd_idx;
+		let frag_cd_eocd = central_directory_idx..(eocd_idx + eocd_len);
+
+		for i in 0..local_file_headers.len() {
+			let validation_info = Self::validate_file(file_data, &local_file_headers[i], local_file_headers.get(i + 1).map(|header| header.offset as usize).unwrap_or(file_data.len())); // TODO: Take max reconstruction search len into account
+		}
 
 		// TODO: Go through the local file headers and validate/reconstruct each file data segment
 
