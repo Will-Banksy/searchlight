@@ -10,8 +10,8 @@ use super::{match_id_hash_slice_u16, Match};
 #[derive(PartialEq)]
 pub struct MatchPair<'a> {
 	pub file_type: &'a FileType,
-	pub start_idx: u64,
-	pub end_idx: u64
+	pub start_idx: usize,
+	pub end_idx: usize
 }
 
 impl fmt::Debug for MatchPair<'_> {
@@ -24,16 +24,16 @@ impl<'a> MatchPair<'a> {
 	pub fn new(file_type: &'a FileType, start: &Match, end: &Match) -> Self {
 		MatchPair {
 			file_type,
-			start_idx: start.start_idx,
-			end_idx: end.end_idx
+			start_idx: start.start_idx as usize,
+			end_idx: end.end_idx as usize
 		}
 	}
 
 	pub fn new_sized(file_type: &'a FileType, start: &Match, size: u64) -> Self {
 		MatchPair {
 			file_type,
-			start_idx: start.start_idx,
-			end_idx: start.start_idx + size
+			start_idx: start.start_idx as usize,
+			end_idx: (start.start_idx + size) as usize
 		}
 	}
 }

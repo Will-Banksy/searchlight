@@ -70,22 +70,22 @@ struct ChunkValidationInfo {
 	validation_type: FileValidationType,
 	chunk_type: u32,
 	chunk_frags: Vec<Fragment>,
-	next_chunk_idx: Option<u64>,
+	next_chunk_idx: Option<usize>,
 }
 
 impl ChunkValidationInfo {
 	pub fn new_unfragmented(validation_type: FileValidationType, chunk_type: u32, chunk_idx: usize, data_len: u32, should_continue: bool) -> Self {
-		let next_chunk_idx = chunk_idx as u64 + 12 + data_len as u64;
+		let next_chunk_idx = chunk_idx + 12 + data_len as usize;
 
 		ChunkValidationInfo {
 			validation_type,
 			chunk_type,
-			chunk_frags: vec![chunk_idx as u64..next_chunk_idx],
-			next_chunk_idx: if should_continue { Some(chunk_idx as u64 + 12 + data_len as u64) } else { None }
+			chunk_frags: vec![chunk_idx..next_chunk_idx],
+			next_chunk_idx: if should_continue { Some(chunk_idx + 12 + data_len as usize) } else { None }
 		}
 	}
 
-	pub fn new_fragmented(validation_type: FileValidationType, chunk_type: u32, fragments: Vec<Fragment>, next_chunk_idx: Option<u64>) -> Self {
+	pub fn new_fragmented(validation_type: FileValidationType, chunk_type: u32, fragments: Vec<Fragment>, next_chunk_idx: Option<usize>) -> Self {
 		ChunkValidationInfo {
 			validation_type,
 			chunk_type,
@@ -98,7 +98,7 @@ impl ChunkValidationInfo {
 enum ChunkReconstructionInfo {
 	Success {
 		chunk_frags: Vec<Fragment>,
-		next_chunk_idx: u64
+		next_chunk_idx: usize
 	},
 	Failure
 }
@@ -110,7 +110,7 @@ impl PngValidator {
 
 	/// Validates and reconstructs PNG chunk at `chunk_idx` in `file_data`, where `file_data` has a cluster size of `cluster_size`, so files can be assumed
 	/// to be allocated in blocks of `cluster_size`. `chunk_idx` refers to the very start of a chunk, where a chunk is \[`len`\]\[`type`\]\[`data`\]\[`crc`\].
-	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, file_data: &[u8], chunk_idx: usize, cluster_size: u64, max_search_len: u64) -> ChunkValidationInfo {
+	fn validate_chunk(requires_plte: &mut bool, plte_forbidden: &mut bool, file_data: &[u8], chunk_idx: usize, cluster_size: usize, max_search_len: usize) -> ChunkValidationInfo {
 		/// Macro to make extracting fields a bit more readable: file_data[(chunk_idx + 4)..(chunk_idx + 8)] -> chunk_data[4, 8]
 		macro_rules! chunk_data {
 			[$start: expr, $end: expr] => {
@@ -181,9 +181,9 @@ impl PngValidator {
 		} else {
 			(
 				vec![
-					(chunk_idx as u64)..(unfrag_crc_offset as u64 + 4)
+					chunk_idx..(unfrag_crc_offset + 4)
 				],
-				unfrag_crc_offset as u64 + 4
+				unfrag_crc_offset + 4
 			)
 		};
 
@@ -208,7 +208,7 @@ impl PngValidator {
 	/// Attempts to reconstruct a fragmented PNG chunk, assuming that the length, chunk type, and CRC are not fragmented and that all
 	/// fragments of the chunk are in-order (limitations) by searching forwards for a valid chunk type, decoding the CRC that should occur just before it,
 	/// and enumerating the possible cluster arrangements between the start of the chunk data and the decoded CRC for a matching calculated CRC
-	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_data_len: usize, cluster_size: u64, max_search_len: u64) -> ChunkReconstructionInfo {
+	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_data_len: usize, cluster_size: usize, max_search_len: usize) -> ChunkReconstructionInfo {
 		let unfrag_crc_offset = chunk_idx + chunk_data_len + 8;
 
 		let mut next_chunk_type_offset = unfrag_crc_offset + 8;
@@ -230,8 +230,8 @@ impl PngValidator {
 		let stored_crc = u32::from_be_bytes(file_data[(next_chunk_type_offset - 8)..(next_chunk_type_offset - 4)].try_into().unwrap());
 
 		// Calculate the fragmentation points
-		let fragmentation_start = utils::next_multiple_of(chunk_idx as u64 + 8, cluster_size) as usize;
-		let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset as u64 - 8, cluster_size) as usize;
+		let fragmentation_start = utils::next_multiple_of(chunk_idx + 8, cluster_size) as usize;
+		let fragmentation_end = utils::prev_multiple_of(next_chunk_type_offset - 8, cluster_size) as usize;
 
 		// Calculate the number of clusters that were skipped, i.e. the number of irrelevant chunks
 		let clusters_skipped = (next_chunk_type_offset - (unfrag_crc_offset + 8)) / cluster_size as usize;
@@ -268,12 +268,12 @@ impl PngValidator {
 		}
 
 		if let Some(mut data_frags) = correct_fragmentation {
-			data_frags.insert(0, chunk_idx as u64..fragmentation_start as u64);
-			data_frags.push(fragmentation_end as u64..(next_chunk_type_offset - 4) as u64);
+			data_frags.insert(0, chunk_idx..fragmentation_start);
+			data_frags.push(fragmentation_end..(next_chunk_type_offset - 4));
 
 			utils::simplify_ranges(&mut data_frags);
 
-			ChunkReconstructionInfo::Success { chunk_frags: data_frags, next_chunk_idx: next_chunk_type_offset as u64 - 4 }
+			ChunkReconstructionInfo::Success { chunk_frags: data_frags, next_chunk_idx: next_chunk_type_offset - 4 }
 		} else {
 			ChunkReconstructionInfo::Failure
 		}
@@ -336,7 +336,7 @@ impl PngValidator {
 
 impl FileValidator for PngValidator {
 	// Written using https://www.w3.org/TR/png-3/
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: usize, config: &SearchlightConfig) -> FileValidationInfo {
 		let mut chunk_idx = file_match.start_idx as usize + 8;
 
 		let mut requires_plte = false;
@@ -362,7 +362,7 @@ impl FileValidator for PngValidator {
 		let mut fragments: Vec<Fragment> = vec![ file_match.start_idx..(file_match.start_idx + 8) ];
 
 		loop {
-			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size, config.max_reconstruction_search_len.unwrap_or(u64::MAX));
+			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size, config.max_reconstruction_search_len.unwrap_or(u64::MAX) as usize);
 
 			fragments.append(&mut chunk_info.chunk_frags);
 			utils::simplify_ranges(&mut fragments);

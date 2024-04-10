@@ -11,6 +11,7 @@ const ZIP_LOCAL_FILE_HEADER_SIG_ID: u64 = 0x04034b50; // TODO: Calculate this
 
 const ZIP_LOCAL_FILE_HEADER_SIZE: usize = 30;
 const ZIP_CENTRAL_DIR_HEADER_SIZE: usize = 46;
+const ZIP_END_OF_CENTRAL_DIR_SIZE: usize = 22;
 
 const ZIP_DATA_DESCRIPTOR_FLAG: u16 = 3;
 
@@ -248,7 +249,7 @@ impl ZipValidator {
 
 impl FileValidator for ZipValidator {
 	// Written using: https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt and https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], _cluster_size: u64, _config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], _cluster_size: usize, _config: &SearchlightConfig) -> FileValidationInfo {
 		// Since ZIP files may have multiple headers before 1 footer, and so we can only assume that 1 footer = 1 zip file, this match pair
 		// may well span the nth file in the zip to the EOCD signature. We can check the number of entries we come across however against
 		// the number of entries in the central directory and if they don't match, and no other problems have been encountered, then we can
@@ -264,14 +265,17 @@ impl FileValidator for ZipValidator {
 		//       4. For each file, put their fragments in order of the offsets in the central directory
 		//       5. As one last thing, go through the fragments and check that all the offsets are correct. If they are not, validate the ZIP as either Partial or Corrupted
 
-		let eocd_idx = file_match.end_idx as usize - file_match.file_type.footers[0].len() + 1;
+		let eocd_idx = file_match.end_idx - file_match.file_type.footers[0].len() + 1;
 
-		if (eocd_idx + 22) > file_data.len() {
+		if (eocd_idx + ZIP_END_OF_CENTRAL_DIR_SIZE) > file_data.len() {
 			return FileValidationInfo {
 				validation_type: FileValidationType::Partial,
 				..Default::default()
 			}
 		}
+
+		let eocd_comment_len = u16::from_le_bytes(file_data[(eocd_idx + 0x14)..(eocd_idx + 0x16)].try_into().unwrap()) as usize;
+		let eocd_len = eocd_comment_len + ZIP_END_OF_CENTRAL_DIR_SIZE;
 
 		// Check the signature - we only want to handle the case of EOCD
 		let signature = &file_data[eocd_idx..(eocd_idx + 4)];
@@ -328,6 +332,9 @@ impl FileValidator for ZipValidator {
 
 			lfhs
 		};
+
+		let frag_eocd = eocd_idx..(eocd_idx + eocd_len);
+		let frag_cd = central_directory_idx..eocd_idx;
 
 		// TODO: Go through the local file headers and validate/reconstruct each file data segment
 

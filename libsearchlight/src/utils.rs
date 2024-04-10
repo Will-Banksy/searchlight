@@ -25,13 +25,13 @@ pub fn file_len(file: &mut File) -> Result<u64, io::Error> {
 
 /// Calculates the next multiple of `multiple` from `num`. E.g. `next_multiple_of(7, 3) == 9`,
 /// `next_multiple_of(9, 3) == 12`
-pub fn next_multiple_of(num: u64, multiple: u64) -> u64 {
+pub fn next_multiple_of(num: usize, multiple: usize) -> usize {
 	((num / multiple) + 1) * multiple
 }
 
 /// Calculates the previous multiple of `multiple` from `num`. E.g. `prev_multiple_of(7, 3) == 6`,
 /// `prev_multiple_of(9, 3) == 9`
-pub fn prev_multiple_of(num: u64, multiple: u64) -> u64 {
+pub fn prev_multiple_of(num: usize, multiple: usize) -> usize {
 	(num / multiple) * multiple
 }
 
@@ -120,7 +120,7 @@ pub fn generate_fragmentations(cluster_size: usize, fragmentation_range: Range<u
 
 	while gap_idx <= clusters.len() - gap_len {
 		// Get all the clusters that are not in the gap, and simplify
-		let mut file_clusters: Vec<Range<u64>> = clusters.iter().enumerate().filter(|(i, _)| *i < gap_idx || *i >= (gap_idx + gap_len)).map(|(_, c)| c.start as u64..c.end as u64).collect();
+		let mut file_clusters: Vec<Range<usize>> = clusters.iter().enumerate().filter(|(i, _)| *i < gap_idx || *i >= (gap_idx + gap_len)).map(|(_, c)| c.clone()).collect();
 		simplify_ranges(&mut file_clusters);
 
 		res.push(file_clusters);
@@ -143,18 +143,6 @@ pub fn simplify_ranges<T>(ranges: &mut Vec<Range<T>>) where T: PartialEq {
 
 		i += 1;
 	}
-}
-
-/// Combines a list of ranges of indexes and a slice of data that is referred to by those indexes to produce a list of slices of that data
-// NOTE: Is this useful?
-pub fn idxs_to_slice<'a, T>(data: &'a [T], idxs: &[Range<usize>]) -> Vec<&'a [T]> {
-	let mut res = Vec::with_capacity(idxs.len());
-
-	for range in idxs {
-		res.push(&data[range.clone()])
-	}
-
-	res
 }
 
 #[cfg(test)]

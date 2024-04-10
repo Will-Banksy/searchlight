@@ -173,7 +173,7 @@ impl Searchlight {
 			let mut num_carved_files = 0;
 
 			for pot_file in match_pairs {
-				let validation = validator.validate(&mmap, &pot_file, &matches, cluster_size, &self.config);
+				let validation = validator.validate(&mmap, &pot_file, &matches, cluster_size as usize, &self.config);
 
 				debug!("Potential file at {}-{} (type id {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
 
@@ -203,7 +203,7 @@ impl Searchlight {
 					)?;
 
 					file.write_vectored(
-						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start as usize..frag.end as usize])).collect::<Vec<IoSlice>>()
+						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
 					)?;
 
 					num_carved_files += 1;

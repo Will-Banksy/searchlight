@@ -30,10 +30,10 @@ impl JpegValidator {
 	/// Attempt to reconstruct JPEG scan data, assuming that all fragments are in-order, by looping through clusters and attempting to classify them
 	/// as either JPEG scan data or not
 	fn reconstruct_scan_data(file_data: &[u8], scan_marker_idx: usize, cluster_size: usize, config: &SearchlightConfig) -> JpegScanReconstructionInfo {
-		let fragmentation_start = utils::next_multiple_of(scan_marker_idx as u64 + 1, cluster_size as u64) as usize;
+		let fragmentation_start = utils::next_multiple_of(scan_marker_idx + 1, cluster_size) as usize;
 
 		let mut fragments = vec![
-			(scan_marker_idx as u64)..(fragmentation_start as u64)
+			scan_marker_idx..fragmentation_start
 		];
 
 		let mut cluster_idx = fragmentation_start;
@@ -56,10 +56,10 @@ impl JpegValidator {
 					()
 				}
 				(true, None) => {
-					fragments.push((cluster_idx as u64)..((cluster_idx + cluster_size) as u64));
+					fragments.push(cluster_idx..(cluster_idx + cluster_size));
 				}
 				(true, Some(next_marker)) => {
-					fragments.push((cluster_idx as u64)..(next_marker + cluster_idx) as u64);
+					fragments.push((cluster_idx)..(next_marker + cluster_idx));
 					utils::simplify_ranges(&mut fragments);
 
 					return JpegScanReconstructionInfo::Success {
@@ -80,7 +80,7 @@ impl JpegValidator {
 impl FileValidator for JpegValidator {
 	// Written using https://www.w3.org/Graphics/JPEG/jfif3.pdf,
 	// https://www.w3.org/Graphics/JPEG/itu-t81.pdf and https://stackoverflow.com/questions/32873541/scanning-a-jpeg-file-for-markers
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: usize, config: &SearchlightConfig) -> FileValidationInfo {
 		let start = file_match.start_idx as usize;
 
 		// Mandatory segments for a complete JPEG file
@@ -98,12 +98,12 @@ impl FileValidator for JpegValidator {
 				// that up. Then again I can't see anything in any documentation to say that segments necessarily have lengths
 				if (file_data[i + 1] ^ 0xd0 < 0x09) || file_data[i + 1] == 0x01 {
 					// Move on to the next segment
-					fragments.push(i as u64..(i as u64 + 2));
+					fragments.push(i..(i + 2));
 					utils::simplify_ranges(&mut fragments);
 					i += 2;
 					continue;
 				} else if file_data[i + 1] == JPEG_EOI {
-					fragments.push(i as u64..(i as u64 + 2 + cluster_size)); // NOTE: We're carving an extra cluster here which isn't necessary for the image but often metadata is stored past EOI so this will catch (some of) that
+					fragments.push(i..(i + 2 + cluster_size)); // NOTE: We're carving an extra cluster here which isn't necessary for the image but often metadata is stored past EOI so this will catch (some of) that
 					utils::simplify_ranges(&mut fragments);
 
 					// Return that this is a complete file with length start - i
@@ -122,7 +122,7 @@ impl FileValidator for JpegValidator {
 							i = next_chunk_idx;
 						},
 						JpegScanReconstructionInfo::Failure { failure_idx } => {
-							fragments.push(i as u64..failure_idx as u64);
+							fragments.push(i..failure_idx);
 
 							break FileValidationInfo {
 								validation_type: FileValidationType::Partial,
@@ -139,7 +139,7 @@ impl FileValidator for JpegValidator {
 					// Parse the length and skip the segment
 					let segment_len = u16::from_be_bytes(file_data[(i + 2)..=(i + 3)].try_into().unwrap());
 
-					fragments.push(i as u64..(i as u64 + segment_len as u64 + 2));
+					fragments.push(i..(i + segment_len as usize + 2));
 					utils::simplify_ranges(&mut fragments);
 
 					i += segment_len as usize + 2;

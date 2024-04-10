@@ -15,10 +15,10 @@ pub trait FileValidator {
 	///
 	/// `cluster_size` is given to aid reconstruction logic. It must not be assumed that cluster_size is any sensible value, as users can pass in anything. Additionally, a cluster size of
 	/// 1 indicates that files in the image aren't allocated on cluster boundaries
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo;
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: usize, config: &SearchlightConfig) -> FileValidationInfo;
 }
 
-pub type Fragment = Range<u64>;
+pub type Fragment = Range<usize>;
 
 pub struct FileValidationInfo {
 	/// The result of validating the data - Whether it is recognised as fully present and correct, partial, corrupted, etc
@@ -98,7 +98,7 @@ impl DelegatingValidator {
 }
 
 impl FileValidator for DelegatingValidator {
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: u64, config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: usize, config: &SearchlightConfig) -> FileValidationInfo {
 		if let Some(validator) = self.validators.get(&file_match.file_type.type_id) {
 			validator.validate(file_data, file_match, all_matches, cluster_size, config)
 		} else {
