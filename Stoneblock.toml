@@ -29,3 +29,11 @@ files = [
 ]
 filler = "Z"
 layout = "1.1, R, 1.2, Z, 1.3, R, 1.1, 1.3"
+
+[scenarios.zip_fragmented]
+path = "../searchlight/test_data/stoneblock_fragmented.dat"
+files = [
+	{ path = "rm.zip", fragments = 2 },
+]
+filler = "Z"
+layout = "1.1, Z, 1.2"

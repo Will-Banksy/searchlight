@@ -207,7 +207,7 @@ impl PngValidator {
 
 	/// Attempts to reconstruct a fragmented PNG chunk, assuming that the length, chunk type, and CRC are not fragmented and that all
 	/// fragments of the chunk are in-order (limitations) by searching forwards for a valid chunk type, decoding the CRC that should occur just before it,
-	/// and enumerating the possible cluster arrangements between the start of the chunk data and the decoded CRC for a matching calculated CRC
+	/// and enumerating some possible cluster arrangements between the start of the chunk data and the decoded CRC for a matching calculated CRC
 	fn reconstruct_chunk(file_data: &[u8], chunk_idx: usize, chunk_data_len: usize, cluster_size: usize, max_search_len: usize) -> ChunkReconstructionInfo {
 		let unfrag_crc_offset = chunk_idx + chunk_data_len + 8;
 

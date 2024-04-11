@@ -2,6 +2,7 @@ pub mod iter;
 pub mod str_parse;
 pub mod fragments_index;
 pub mod subrange;
+pub mod multi_reader;
 
 use std::{collections::BTreeMap, fs::File, io::{self, Seek}, ops::Range};
 

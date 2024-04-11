@@ -19,6 +19,7 @@ log = "0.4.20"
 crc32fast = "1.3.2"
 unicode-segmentation = "1.11.0"
 strum = { version = "0.26.1", features = [ "derive" ] }
+flate2 = "1.0.28" # Need for decompressing deflate-compressed ZIP file data
 
 # Conditionally depend on libc and rio on linux platforms
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -1,4 +1,8 @@
-use crate::{search::{match_id_hash_slice, pairing::MatchPair, Match}, searchlight::config::SearchlightConfig, utils};
+use std::io::Read;
+
+use log::warn;
+
+use crate::{search::{pairing::MatchPair, Match}, searchlight::config::SearchlightConfig, utils::{self, multi_reader::MultiReader}};
 
 use super::{FileValidationInfo, FileValidationType, FileValidator, Fragment};
 
@@ -14,27 +18,34 @@ const ZIP_DATA_DESCRIPTOR_SIZE: usize = 12;
 const ZIP_CENTRAL_DIR_HEADER_SIZE: usize = 46;
 const ZIP_END_OF_CENTRAL_DIR_SIZE: usize = 22;
 
-const ZIP_DATA_DESCRIPTOR_FLAG: u16 = 3;
+const ZIP_DATA_DESCRIPTOR_FLAG: u16 = 0b1000;
+
+const ZIP_COMPRESSION_METHOD_STORE: u16 = 0;
+const ZIP_COMPRESSION_METHOD_DEFLATE: u16 = 8;
+
+const DECOMPRESS_BUFFER_SIZE: usize = 1024 * 1024;
+
+// NOTE: ImHex pattern language for ZIP local file header. Might be useful might not
+// struct LocalFileHeader {
+//     u32 signature;
+//     u16 version;
+//     u16 flags;
+//     u16 compression;
+//     u16 modtime;
+//     u16 moddate;
+//     u32 crc;
+//     u32 compressed_size;
+//     u32 uncompressed_size;
+//     u16 file_name_len;
+//     u16 extra_field_len;
+//     char string[file_name_len];
+//     u8 extra_field[extra_field_len];
+// };
+
+// LocalFileHeader hdr_0 @ 0x00;
+
 
 pub struct ZipValidator;
-
-// struct SegmentValidationInfo {
-// 	validation_type: FileValidationType,
-// 	segment_size: Option<usize>,
-// 	decoded_file_segment: Option<SegmentInfo>
-// }
-
-// struct SegmentInfo {
-// 	offset: usize,
-// 	data_size: usize
-// }
-
-// NOTE: This is just some code to calculate and display the match id of ZIP local file header signatures. Keeping this here for future reference just in case I fucked up the endianness
-#[test]
-fn calc_zip_local_file_header_sig_id() {
-	let sig = ZIP_LOCAL_FILE_HEADER_SIG.to_le_bytes();
-	println!("ZIP local file header signature match id: {}", match_id_hash_slice(&sig));
-}
 
 struct LocalFileValidationInfo {
 	validation_type: FileValidationType,
@@ -49,6 +60,7 @@ enum FileDataReconstructionInfo {
 	Failure
 }
 
+#[derive(Debug)]
 struct CentralDirectoryFileHeader<'a> {
 	crc: u32,
 	compressed_size: u32,
@@ -58,9 +70,11 @@ struct CentralDirectoryFileHeader<'a> {
 	len: usize
 }
 
+#[derive(Debug)]
 struct LocalFileHeader<'a> {
 	idx: usize,
 	has_data_descriptor: bool,
+	compression_method: u16,
 	crc: u32,
 	compressed_size: u32,
 	file_name: &'a [u8],
@@ -71,8 +85,46 @@ struct LocalFileHeader<'a> {
 
 struct DataDescriptor {
 	crc: u32,
-	compressed_size: u32,
 	len: usize
+}
+
+enum CrcCalcError {
+	UnsupportedCompressionMethod,
+	DecompressionError,
+}
+
+/// Calculates the CRC of input data slices, which depends on the compression method: For store, you can just calculate the CRC
+/// on the bytes directly, for deflate (or any other compression scheme but we're only supporting deflate cause it's the most
+/// widely used) you need to decompress first
+fn zip_crc_calc(data_slices: &[&[u8]], compression_method: u16) -> Result<u32, CrcCalcError> {
+	match compression_method {
+		ZIP_COMPRESSION_METHOD_STORE => {
+			let mut hasher = crc32fast::Hasher::new();
+			for slice in data_slices {
+				hasher.update(&slice);
+			}
+			Ok(hasher.finalize())
+		}
+		ZIP_COMPRESSION_METHOD_DEFLATE => {
+			let reader = MultiReader::new(data_slices);
+			let deflate_reader = flate2::read::DeflateDecoder::new(reader);
+			let mut crc_reader = flate2::CrcReader::new(deflate_reader);
+
+			let mut intermediate_buffer = vec![0; DECOMPRESS_BUFFER_SIZE];
+
+			loop {
+				let read = crc_reader.read(&mut intermediate_buffer).map_err(|e| CrcCalcError::DecompressionError)?;
+				if read == 0 {
+					break;
+				}
+			}
+
+			Ok(crc_reader.crc().sum())
+		}
+		_ => {
+			return Err(CrcCalcError::UnsupportedCompressionMethod)
+		}
+	}
 }
 
 impl<'a> CentralDirectoryFileHeader<'a> {
@@ -86,7 +138,7 @@ impl<'a> CentralDirectoryFileHeader<'a> {
 		let crc = u32::from_le_bytes(data[0x10..0x14].try_into().unwrap());
 		let compressed_size = u32::from_le_bytes(data[0x14..0x18].try_into().unwrap());
 		let file_name_len = u16::from_le_bytes(data[0x1c..0x1e].try_into().unwrap()) as usize;
-		let extra_field_len = u16::from_le_bytes(data[0x1e..0x1f].try_into().unwrap()) as usize;
+		let extra_field_len = u16::from_le_bytes(data[0x1e..0x20].try_into().unwrap()) as usize;
 		let file_header_offset = u32::from_le_bytes(data[0x2a..0x2e].try_into().unwrap());
 
 		let file_name = &data[0x2e..(0x2e + file_name_len)];
@@ -103,12 +155,13 @@ impl<'a> CentralDirectoryFileHeader<'a> {
 	}
 
 	fn same(&self, lfhdr: &LocalFileHeader) -> bool {
+		warn!("ZIP: same(): Comparing:\n-> {self:x?}\nWITH\n-> {lfhdr:x?}");
 		// If the local file header CRC and compressed size are 0, then a data descriptor is present which contains this information instead.
 		// In those cases, we're just gonna have to hope that the file name and extra field are good enough indicators
 		(self.crc == lfhdr.crc || lfhdr.has_data_descriptor) &&
 		(self.compressed_size == lfhdr.compressed_size || lfhdr.has_data_descriptor) &&
-		self.file_name == lfhdr.file_name &&
-		self.extra_field == lfhdr.extra_field
+		self.file_name == lfhdr.file_name
+		// self.extra_field == lfhdr.extra_field // NOTE: Apparently (according to samples I have examined) the extra field is not necessarily the same between Central Directory File Header and Local File Header
 	}
 }
 
@@ -123,6 +176,7 @@ impl<'a> LocalFileHeader<'a> {
 		let flags = u16::from_le_bytes(data[0x06..0x08].try_into().unwrap());
 		let has_data_descriptor = (flags & ZIP_DATA_DESCRIPTOR_FLAG) > 0;
 
+		let compression_method = u16::from_le_bytes(data[0x08..0x0a].try_into().unwrap());
 		let crc = u32::from_le_bytes(data[0x0e..0x12].try_into().unwrap());
 		let compressed_size = u32::from_le_bytes(data[0x12..0x16].try_into().unwrap());
 		let file_name_len = u16::from_le_bytes(data[0x1a..0x1c].try_into().unwrap()) as usize;
@@ -134,6 +188,7 @@ impl<'a> LocalFileHeader<'a> {
 		Some(LocalFileHeader {
 			idx,
 			has_data_descriptor,
+			compression_method,
 			crc,
 			compressed_size,
 			file_name,
@@ -159,20 +214,18 @@ impl DataDescriptor {
 
 		if first_field == ZIP_DATA_DESCRIPTOR_SIG {
 			let crc = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
-			let compressed_size = u32::from_le_bytes(data[0x08..0x0c].try_into().unwrap());
+			// let compressed_size = u32::from_le_bytes(data[0x08..0x0c].try_into().unwrap());
 
 			DataDescriptor {
 				crc,
-				compressed_size,
 				len: ZIP_DATA_DESCRIPTOR_SIZE + 4
 			}
 		} else {
 			let crc = first_field;
-			let compressed_size = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
+			// let compressed_size = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
 
 			DataDescriptor {
 				crc,
-				compressed_size,
 				len: ZIP_DATA_DESCRIPTOR_SIZE
 			}
 		}
@@ -184,138 +237,69 @@ impl ZipValidator {
 		ZipValidator
 	}
 
-	/// Validates a segment at data\[0..\], a "segment" being a "\[local file header\]\[file data\]\[data descriptor\]"
-	/// or "\[central directory header\]" - i.e. anything with a signature, excluding the end of central directory header
-	/// because that is handled elsewhere and excluding a few others as they are currently unsupported (data descriptor records
-	/// do have signatures but they are not enforced so cannot be relied upon to exist)
-	///
-	/// For "\[local file header\]\[file data\]\[data descriptor\]" segments, requires a passed-in segment_data_size that was
-	/// decoded from the central directory that indicates the size of the compressed file data in order to support data descriptors.
-	/// For other segments segment_data_size is ignored.
-	// fn validate_segment(data: &[u8], segment_data_size: usize) -> SegmentValidationInfo {
-	// 	let signature = u32::from_le_bytes(data[0..4].try_into().unwrap());
-
-	// 	if signature == ZIP_LOCAL_FILE_HEADER_SIG {
-	// 		let flags = u16::from_le_bytes(data[6..8].try_into().unwrap());
-
-	// 		let has_data_descriptor = (flags & ZIP_DATA_DESCRIPTOR_FLAG) > 0;
-
-	// 		let file_name_len = u16::from_le_bytes(data[26..28].try_into().unwrap());
-	// 		let extra_field_len = u16::from_le_bytes(data[28..30].try_into().unwrap());
-
-	// 		let mut next_chunk_offset = ZIP_LOCAL_FILE_HEADER_SIZE + file_name_len as usize + extra_field_len as usize;
-
-	// 		// Calculates where the data descriptor fields start - takes data descriptor signatures into account. If a
-	// 		// data descriptor does not exist then this will simply point to the end of the file data but won't actually
-	// 		// be used anyway
-	// 		let data_descriptor_fields_idx = {
-	// 			let end_of_data = next_chunk_offset + segment_data_size;
-
-	// 			if u32::from_le_bytes(data[end_of_data..(end_of_data + 4)].try_into().unwrap()) == ZIP_DATA_DESCRIPTOR_SIG {
-	// 				end_of_data + 4
-	// 			} else {
-	// 				end_of_data
-	// 			}
-	// 		};
-
-	// 		let crc = {
-	// 			if has_data_descriptor {
-	// 				u32::from_le_bytes(data[data_descriptor_fields_idx..(data_descriptor_fields_idx + 4)].try_into().unwrap())
-	// 			} else {
-	// 				u32::from_le_bytes(data[14..18].try_into().unwrap())
-	// 			}
-	// 		};
-
-	// 		let compressed_size = {
-	// 			if has_data_descriptor {
-	// 				u32::from_le_bytes(data[(data_descriptor_fields_idx + 4)..(data_descriptor_fields_idx + 8)].try_into().unwrap())
-	// 			} else {
-	// 				u32::from_le_bytes(data[18..22].try_into().unwrap())
-	// 			}
-	// 		};
-
-	// 		let mut data_corrupt = false;
-
-	// 		if compressed_size != 0 {
-	// 			let file_data = &data[next_chunk_offset..(next_chunk_offset + compressed_size as usize)];
-	// 			let file_data_crc = crc32fast::hash(file_data);
-
-	// 			if crc != file_data_crc {
-	// 				data_corrupt = true;
-	// 			}
-
-	// 			next_chunk_offset += compressed_size as usize;
-	// 		}
-
-	// 		if has_data_descriptor {
-	// 			next_chunk_offset += 12;
-	// 		}
-
-	// 		assert_eq!(next_chunk_offset, segment_data_size);
-
-	// 		SegmentValidationInfo {
-	// 			validation_type: if data_corrupt {
-	// 				FileValidationType::Corrupt
-	// 			} else {
-	// 				FileValidationType::Correct
-	// 			},
-	// 			segment_size: None,
-	// 			decoded_file_segment: None
-	// 		}
-	// 	} else if signature == ZIP_CENTRAL_DIR_HEADER_SIG {
-	// 		let file_name_len = u16::from_le_bytes(data[28..30].try_into().unwrap()) as usize;
-	// 		let extra_field_len = u16::from_le_bytes(data[30..32].try_into().unwrap()) as usize;
-	// 		let comment_len = u16::from_le_bytes(data[32..34].try_into().unwrap()) as usize;
-
-	// 		let file_seg_compressed_size = u32::from_le_bytes(data[20..24].try_into().unwrap());
-	// 		let file_seg_header_offset = u32::from_le_bytes(data[20..24].try_into().unwrap());
-
-	// 		SegmentValidationInfo {
-	// 			validation_type: FileValidationType::Correct,
-	// 			segment_size: Some(file_name_len + extra_field_len + comment_len + ZIP_CENTRAL_DIR_HEADER_SIZE),
-	// 			decoded_file_segment: Some(SegmentInfo {
-	// 				offset: file_seg_header_offset as usize,
-	// 				data_size: file_seg_compressed_size as usize,
-	// 			})
-	// 		}
-	// 	} else {
-	// 		SegmentValidationInfo {
-	// 			validation_type: FileValidationType::Unrecognised,
-	// 			segment_size: None,
-	// 			decoded_file_segment: None
-	// 		}
-	// 	}
-	// }
-
-	fn validate_file(file_data: &[u8], header: &LocalFileHeader, next_header_idx: usize) -> LocalFileValidationInfo {
+	fn validate_file(file_data: &[u8], header: &LocalFileHeader, next_header_idx: usize, cluster_size: usize) -> LocalFileValidationInfo {
 		let data_idx = header.idx + header.len;
 
-		let unfrag_crc = crc32fast::hash(&file_data[data_idx..(data_idx + header.compressed_size as usize)]);
+		// let unfrag_crc = crc32fast::hash(&file_data[data_idx..(data_idx + header.compressed_size as usize)]);
 
-		let unfrag_end = if header.has_data_descriptor {
+		let data_descriptor_len = if header.has_data_descriptor {
 			let data_descriptor_idx = data_idx + header.compressed_size as usize;
 			let data_descriptor = DataDescriptor::decode(&file_data[data_descriptor_idx..]);
 
 			// If the data descriptor CRC is equal to the file content CRC, and the CRC from the central directory is not equal to the content CRC, then return with unrecognised. This
 			// will, admittedly, be the case barely any of the time since all of the compressed size, name, and extra field will have to be the same between this file and a file in the
 			// central directory
-			if unfrag_crc != header.crc && unfrag_crc == data_descriptor.crc {
+			// NOTE: Disabled for now cause we need the data descriptor length for the CRC return on error which introduces a cyclic dependency
+			// if unfrag_crc != header.crc && unfrag_crc == data_descriptor.crc {
+			// 	return LocalFileValidationInfo {
+			// 		validation_type: FileValidationType::Unrecognised,
+			// 		frags: Vec::new()
+			// 	}
+			// }
+
+			data_descriptor.len
+		} else {
+			0
+		};
+
+		let unfrag_end = data_idx + header.compressed_size as usize + data_descriptor_len;
+
+		let unfrag_crc = match zip_crc_calc(&[&file_data[data_idx..(data_idx + header.compressed_size as usize)]], header.compression_method) {
+			Ok(crc) => crc,
+			Err(CrcCalcError::UnsupportedCompressionMethod) => {
+				// If we encounter an unsupported compression method, just return the data as if it was unfragmented cause we can't reconstruct it
+				warn!("ZIP: Unsupported compression method ({}) may cause errors", header.compression_method);
 				return LocalFileValidationInfo {
-					validation_type: FileValidationType::Unrecognised,
-					frags: Vec::new()
+					validation_type: FileValidationType::Unanalysed,
+					frags: vec![ (header.idx as usize..unfrag_end) ]
 				}
 			}
-
-			data_idx + header.compressed_size as usize + data_descriptor.len
-		} else {
-			data_idx + header.compressed_size as usize
+			Err(CrcCalcError::DecompressionError) => {
+				// A decompression error almost certainly means that the file data is not intact or that it is fragmented, so just return any number that is not equal to the header CRC
+				if header.crc == 0 {
+					1
+				} else {
+					0
+				}
+			}
 		};
 
 		if unfrag_crc != header.crc { // TODO: In this case, fragmentation is likely. Take an approach for reconstructing the file data like the PNG one. Remember to take data descriptors into account
-			let recons_info = Self::reconstruct_file_data(file_data, header, data_idx, next_header_idx);
+			warn!("Unfrag CRC != header CRC");
+
+			// For cases we're not trying to tackle (out-of-order segment fragments or the fragment being past the central directory in the image), just return corrupted (cause it may also just be corrupted)
+			if unfrag_end >= next_header_idx {
+				return LocalFileValidationInfo {
+					validation_type: FileValidationType::Corrupt,
+					frags: vec![ (header.idx as usize..unfrag_end) ]
+				}
+			}
+
+			let recons_info = Self::reconstruct_file_data(file_data, header, data_idx, next_header_idx, cluster_size);
 
 			match recons_info {
 				FileDataReconstructionInfo::Success { mut data_frags, end_idx } => {
+					warn!("ZIP: Reconstruction success!");
 					let header_frag = header.idx..data_idx;
 					data_frags.insert(0, header_frag);
 
@@ -333,6 +317,7 @@ impl ZipValidator {
 					}
 				}
 				FileDataReconstructionInfo::Failure => {
+					warn!("ZIP: Reconstruction failure");
 					LocalFileValidationInfo {
 						validation_type: FileValidationType::Partial,
 						frags: vec![ (header.idx as usize..unfrag_end) ]
@@ -340,6 +325,8 @@ impl ZipValidator {
 				}
 			}
 		} else {
+			warn!("ZIP: CRCs are correct...?");
+
 			LocalFileValidationInfo {
 				validation_type: FileValidationType::Correct,
 				frags: vec![ (header.idx as usize..unfrag_end) ]
@@ -347,14 +334,99 @@ impl ZipValidator {
 		}
 	}
 
-	fn reconstruct_file_data(file_data: &[u8], header: &LocalFileHeader, data_idx: usize, next_header_idx: usize) -> FileDataReconstructionInfo {
-		todo!(); // TODO: Basically do the same as done for reconstructing PNG chunks
+	/// Attempts to reconstruct ZIP file data, given an assumed unfragmented local file header, and the index of either the next header, assuming ZIP segments
+	/// are tightly packed, or the central directory if no header was found after this one, by enumerating some possible cluster arrangements between the start
+	/// of the file data and the next header index for a calculated CRC that matches that in the header
+	fn reconstruct_file_data(file_data: &[u8], header: &LocalFileHeader, data_idx: usize, next_header_idx: usize, cluster_size: usize) -> FileDataReconstructionInfo {
+		let data_descriptor_len = {
+			let data_descriptor_sig_idx = next_header_idx - (ZIP_DATA_DESCRIPTOR_SIZE + 4);
+			if u32::from_le_bytes(file_data[data_descriptor_sig_idx..(data_descriptor_sig_idx + 4)].try_into().unwrap()) == ZIP_DATA_DESCRIPTOR_SIG {
+				ZIP_DATA_DESCRIPTOR_SIZE + 4
+			} else {
+				ZIP_DATA_DESCRIPTOR_SIZE
+			}
+		};
+
+		let fragmentation_start = utils::next_multiple_of(data_idx, cluster_size);
+		let fragmentation_end = utils::prev_multiple_of(next_header_idx - data_descriptor_len, cluster_size);
+
+		let bytes_skipped = next_header_idx - (data_idx + header.compressed_size as usize + data_descriptor_len);
+
+		// If the next header index (as supplied - may also be the central directory index) is not at the same cluster-local offset as the end of this segment would be, then it is probably not
+		// the actual next header after this, or this file segment doesn't belong, or something. Either way, it's not in scope to try and reconstruct it as of yet
+		if bytes_skipped % cluster_size != 0 {
+			warn!("ZIP: Skipped a non-multiple of cluster size? {}", bytes_skipped % cluster_size);
+			return FileDataReconstructionInfo::Failure
+		}
+
+		// Calculate the numbers of clustes in the fragmentation range that are not ZIP, and that are
+		let clusters_skipped = bytes_skipped / cluster_size;
+		let clusters_needed = ((fragmentation_end - fragmentation_start) / cluster_size) - clusters_skipped;
+
+		warn!("ZIP: Clusters needed: {clusters_needed}; Clusters skipped: {clusters_skipped}");
+		warn!("ZIP: Fragmentation range: {fragmentation_start}..{fragmentation_end}");
+
+		let fragmentations = utils::generate_fragmentations(cluster_size, fragmentation_start..fragmentation_end, clusters_needed);
+
+		let mut correct_fragmentation = None;
+
+		// Initialise CRC hasher with the file data up to the fragmentation point
+		// let mut hasher = crc32fast::Hasher::new();
+		// hasher.update(&file_data[data_idx..fragmentation_start]);
+
+		let data_slices = vec![ &file_data[data_idx..fragmentation_start] ];
+
+		for data_frags in fragmentations {
+			// Clone the slices vec and add to it the slices for each fragment in this fragmentation
+			let mut data_slices = data_slices.clone();
+			for range in &data_frags {
+				data_slices.push(&file_data[range.start as usize..range.end as usize]);
+			}
+
+			warn!("ZIP: Trying fragmentation: {data_frags:?}");
+
+			// Add the last part of the file data, the bit outside the fragmentation range
+			data_slices.push(&file_data[fragmentation_end..(next_header_idx - data_descriptor_len)]);
+
+			// Now we can calculate the CRC
+			let calc_crc = match zip_crc_calc(&[&file_data[data_idx..(data_idx + header.compressed_size as usize)]], header.compression_method) {
+				Ok(crc) => crc,
+				Err(CrcCalcError::UnsupportedCompressionMethod) => {
+					unimplemented!(); // This should not happen
+				}
+				Err(CrcCalcError::DecompressionError) => {
+					// A decompression error almost certainly means that the file data is not intact or that it is fragmented, so just return any number that is not equal to the header CRC
+					if header.crc == 0 {
+						1
+					} else {
+						0
+					}
+				}
+			};
+			if calc_crc == header.crc {
+				warn!("ZIP: Found correct fragmentation!");
+				correct_fragmentation = Some(data_frags);
+				break;
+			}
+		}
+
+		if let Some(mut data_frags) = correct_fragmentation {
+			data_frags.insert(0, data_idx..fragmentation_start);
+			data_frags.push(fragmentation_end..(next_header_idx - data_descriptor_len));
+
+			utils::simplify_ranges(&mut data_frags);
+
+			FileDataReconstructionInfo::Success { data_frags, end_idx: next_header_idx }
+		} else {
+			warn!("ZIP: Exhausted all fragmentations, found no solution");
+			FileDataReconstructionInfo::Failure
+		}
 	}
 }
 
 impl FileValidator for ZipValidator {
 	// Written using: https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt and https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
-	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], _cluster_size: usize, _config: &SearchlightConfig) -> FileValidationInfo {
+	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: usize, _config: &SearchlightConfig) -> FileValidationInfo {
 		// Since ZIP files may have multiple headers before 1 footer, and so we can only assume that 1 footer = 1 zip file, this match pair
 		// may well span the nth file in the zip to the EOCD signature. We can check the number of entries we come across however against
 		// the number of entries in the central directory and if they don't match, and no other problems have been encountered, then we can
@@ -420,7 +492,11 @@ impl FileValidator for ZipValidator {
 			cd
 		};
 
+		warn!("ZIP: Central directory len: {}", central_directory.len());
+
 		let zip_header_matches: Vec<&Match> = all_matches.iter().filter(|m| m.id == ZIP_LOCAL_FILE_HEADER_SIG_ID).collect();
+
+		warn!("ZIP: Header matches len: {}", zip_header_matches.len());
 
 		let local_file_headers = {
 			let mut lfhs = Vec::new();
@@ -440,96 +516,34 @@ impl FileValidator for ZipValidator {
 			lfhs
 		};
 
+		warn!("ZIP: Local files len: {}", local_file_headers.len());
+
 		let frag_cd_eocd = central_directory_idx..(eocd_idx + eocd_len);
 
+		let mut file_frags = vec![ frag_cd_eocd ];
+		let mut worst_file_validation = FileValidationType::Correct;
+
 		for i in 0..local_file_headers.len() {
-			let validation_info = Self::validate_file(file_data, &local_file_headers[i], local_file_headers.get(i + 1).map(|header| header.offset as usize).unwrap_or(file_data.len())); // TODO: Take max reconstruction search len into account
+			let mut validation_info = Self::validate_file(file_data, &local_file_headers[i], local_file_headers.get(i + 1).map(|header| header.offset as usize).unwrap_or(central_directory_idx), cluster_size); // TODO: Take max reconstruction search len into account
+
+			if validation_info.validation_type != FileValidationType::Unrecognised {
+				file_frags.append(&mut validation_info.frags);
+				worst_file_validation = worst_file_validation.worst_of(validation_info.validation_type);
+			}
 		}
 
-		// TODO: Go through the local file headers and validate/reconstruct each file data segment
+		// Since the files could be in any order, we sort by start of fragment, and then simplify of course
+		file_frags.sort_by_key(|range| range.start);
+		utils::simplify_ranges(&mut file_frags);
 
-		todo!()
+		if cd_total_entries as usize != local_file_headers.len() {
+			warn!("ZIP: Not all files were found for ZIP archive starting at {}", file_match.start_idx);
+			worst_file_validation = worst_file_validation.worst_of(FileValidationType::Corrupt);
+		}
 
-		// let eocd_idx = file_match.end_idx as usize - file_match.file_type.footers[0].len() + 1;
-
-		// if (eocd_idx + 22) > file_data.len() {
-		// 	return FileValidationInfo {
-		// 		validation_type: FileValidationType::Partial,
-		// 		..Default::default()
-		// 	}
-		// }
-
-		// // Check the signature - we only want to handle the case of EOCD
-		// let signature = &file_data[eocd_idx..(eocd_idx + 4)];
-		// assert_eq!(signature, &[ 0x50, 0x4b, 0x05, 0x06 ]);
-
-		// // Get the disk number on which this EOCD record resides, and the disk number on which the central directory starts
-		// let cd_diskno = u16::from_le_bytes(file_data[(eocd_idx + 4)..(eocd_idx + 6)].try_into().unwrap());
-		// let cd_start_diskno = u16::from_le_bytes(file_data[(eocd_idx + 6)..(eocd_idx + 8)].try_into().unwrap());
-
-		// // Explicitly do not analyse the case of multi-disk/-part files
-		// if cd_diskno != cd_start_diskno || cd_diskno > 0 {
-		// 	return FileValidationInfo {
-		// 		validation_type: FileValidationType::Unanalysed,
-		// 		..Default::default()
-		// 	}
-		// }
-
-		// // Get the central directory total entries and size
-		// let cd_total_entries = u16::from_le_bytes(file_data[(eocd_idx + 10)..(eocd_idx + 12)].try_into().unwrap());
-		// let cd_size = u32::from_le_bytes(file_data[(eocd_idx + 12)..(eocd_idx + 16)].try_into().unwrap()) as usize;
-
-		// // This assumes that the central directory is tightly packed and directly before the EOCD, which as far as I've read,
-		// // the spec doesn't specify
-		// let central_directory_idx = eocd_idx - cd_size;
-
-		// let mut curr_idx = central_directory_idx;
-		// let mut file_segments: Vec<SegmentInfo> = Vec::with_capacity(cd_total_entries as usize);
-
-		// while curr_idx < eocd_idx {
-		// 	let seg_validation = Self::validate_segment(&file_data[curr_idx..], 0);
-
-		// 	if let Some(file_segment) = seg_validation.decoded_file_segment {
-		// 		file_segments.push(file_segment);
-		// 	} else {
-		// 		return FileValidationInfo {
-		// 			validation_type: FileValidationType::Unrecognised,
-		// 			..Default::default()
-		// 		}
-		// 	}
-
-		// 	if let Some(segment_size) = seg_validation.segment_size {
-		// 		curr_idx += segment_size;
-		// 	} else {
-		// 		assert!(false);
-		// 	}
-		// }
-
-		// // TODO: Some calculations to determine whether the file headers that are listed in the central directory can fit between
-		// // file_match.start_idx and central_directory_idx - If they can't, ZIP match is partial, and it's probably quite difficult
-		// // to correct this... as we can't assume that file headers are contiguous. If we could assume that they were, and we could
-		// // assume that the last file header & associated data ends directly before the central directory starts, then we could calculate
-		// // the real file starting position. As we can't, well, we could try scanning backwards for file headers... And we can always try
-		// // assuming the above, as that may work for most ZIP files.
-
-		// let mut worst_validation = FileValidationType::Correct;
-
-		// let start_of_file = file_match.start_idx as usize;
-
-		// while let Some(file_segment) = file_segments.pop() {
-		// 	let start_idx = start_of_file + file_segment.offset;
-		// 	let seg_validation = Self::validate_segment(&file_data[start_idx..], file_segment.data_size);
-
-		// 	if seg_validation.validation_type == FileValidationType::Unrecognised {
-		// 		continue;
-		// 	}
-
-		// 	worst_validation = worst_validation.worst_of(seg_validation.validation_type);
-		// }
-
-		// FileValidationInfo {
-		// 	validation_type: worst_validation,
-		// 	..Default::default()
-		// }
+		FileValidationInfo {
+			validation_type: worst_file_validation,
+			fragments: file_frags
+		}
 	}
 }

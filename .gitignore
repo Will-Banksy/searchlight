@@ -1,5 +1,6 @@
 /target
 /test_data/*
 !/test_data/corpus
+!/test_data/supplementary_files
 /*.svg
 /perf.*

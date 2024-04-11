@@ -81,7 +81,7 @@ impl Searchlight {
 
 			let num_blocks = {
 				let num_blocks = (file_len as usize - max_pat_len) / (block_size - max_pat_len);
-				if file_len % num_blocks as u64 != 0 {
+				if file_len % block_size as u64 != 0 {
 					num_blocks + 1
 				} else {
 					num_blocks
@@ -161,7 +161,8 @@ impl Searchlight {
 				}
 			}
 
-			let match_pairs = pair(&mut matches.clone(), id_ftype_map, true);
+			let mut consumable_matches = matches.clone();
+			let match_pairs = pair(&mut consumable_matches, id_ftype_map, true);
 
 			info!("Searching complete: Found {} potential files ({} individual matches)", match_pairs.len(), num_matches);
 
