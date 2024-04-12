@@ -10,10 +10,10 @@ pub struct Args { // TODO: Add a "quick search" option to only look for headers 
 	pub verbose: clap_verbosity_flag::Verbosity<InfoLevel>,
 	/// Path to the input disk image file to attempt to recover data from
 	#[arg(short, long)]
-	pub input: String,
+	pub input: Option<String>,
 	/// The cluster size that the filesystem that is/was present in the disk image allocated files in, i.e. all valid non-embedded file headers will be found at multiples of this value.
 	/// Alternatively, you can specify "unaligned" or "unknown"
-	#[arg(short = 'l', long, default_value = "unknown")]
+	#[arg(short, long, default_value = "unknown")]
 	pub cluster_size: ClusterSizeArg,
 	/// The output directory to save recovered file contents in. Defaults to a timestamped directory (startup time) in the current working directory
 	#[arg(short, long)]
@@ -22,8 +22,10 @@ pub struct Args { // TODO: Add a "quick search" option to only look for headers 
 	#[arg(short, long)]
 	pub skip_carving: bool,
 	/// Path to the TOML config file. Defaults to looking for "Searchlight.toml" in the current working directory
-	#[arg(short, long)]
-	pub config: Option<String>
+	#[arg(short = 'f', long)]
+	pub config: Option<String>,
+	/// If specified, will read the target log file and carve the files indicated in it. Doesn't require a config. If specified alongside input, will perform both carving operations separately
+	pub carve_log: Option<String>,
 }
 
 #[derive(Debug, Clone)]

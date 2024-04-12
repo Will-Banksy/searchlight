@@ -139,7 +139,7 @@ mod test {
 
 		let frags = [ 4..7, 10..15 ];
 
-		let expected = [ ];
+		let expected = [0u8; 0];
 
 		let frags_index = FragmentsIndex::new_sliced(&file_data, &frags, 4, 5);
 

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display, ops::Deref};
 
 use log::error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{error::Error, search::{match_id_hash_slice_u16, pairing::MatchPart}, utils::str_parse::parse_match_str};
 
@@ -75,7 +75,7 @@ impl Display for MatchString {
 	}
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Hash, strum::Display)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, strum::Display, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum FileTypeId {

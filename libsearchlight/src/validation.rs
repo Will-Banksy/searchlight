@@ -4,6 +4,8 @@ pub mod zip;
 
 use std::{collections::HashMap, ops::Range};
 
+use serde::Serialize;
+
 use crate::{search::{pairing::MatchPair, Match}, searchlight::config::{FileTypeId, SearchlightConfig}};
 
 use self::{jpeg::JpegValidator, png::PngValidator, zip::ZipValidator};
@@ -36,7 +38,8 @@ impl Default for FileValidationInfo {
 	}
 }
 
-#[derive(Debug, PartialEq, strum::Display)]
+#[derive(Serialize, Debug, PartialEq, strum::Display)]
+#[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum FileValidationType {
 	/// Data is recognised as completely valid for the file format
