@@ -221,7 +221,7 @@ impl PngValidator {
 			next_chunk_type_offset += cluster_size as usize;
 
 			// If we're now out of bounds (or will be upon attempting to read the chunk data len) then return with failure
-			if next_chunk_type_offset + 4 >= file_data.len() || next_chunk_type_offset + 4 >= max_search_len as usize { // BUG: We're still not paying attention to the max file size, butwe've got a max search len at least
+			if next_chunk_type_offset + 4 >= file_data.len() || next_chunk_type_offset + 4 >= max_search_len as usize { // BUG: We're still not paying attention to the max file size, but we've got a max search len at least
 				return ChunkReconstructionInfo::Failure;
 			}
 		}
@@ -362,7 +362,7 @@ impl FileValidator for PngValidator {
 		let mut fragments: Vec<Fragment> = vec![ file_match.start_idx..(file_match.start_idx + 8) ];
 
 		loop {
-			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size, config.max_reconstruction_search_len.unwrap_or(u64::MAX) as usize);
+			let mut chunk_info = Self::validate_chunk(&mut requires_plte, &mut plte_forbidden, &file_data, chunk_idx, cluster_size, config.max_reconstruction_search_len.map(|len| len as usize).unwrap_or(usize::MAX));
 
 			fragments.append(&mut chunk_info.chunk_frags);
 			utils::simplify_ranges(&mut fragments);
