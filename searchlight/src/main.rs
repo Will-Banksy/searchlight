@@ -25,7 +25,7 @@ fn main() {
 
 	let mut searchlight = Searchlight::new();
 
-	if let Some(input) = args.input {
+	if let Some(image_path) = args.image {
 		args.config = Some(args.config.unwrap_or("Searchlight.toml".to_string()));
 
 		let config = match fs::read_to_string(args.config.as_ref().unwrap()) {
@@ -45,7 +45,7 @@ fn main() {
 		debug!("Config: {:?}", config);
 
 		searchlight.add_operation(CarveOperationInfo::Image {
-			path: input,
+			path: image_path,
 			config,
 			cluster_size: args.cluster_size.as_option(),
 			skip_carving: args.skip_carving

@@ -8,20 +8,21 @@ use clap_verbosity_flag::InfoLevel;
 pub struct Args { // TODO: Add a "quick search" option to only look for headers at the start of clusters... but still need to find footers...
 	#[command(flatten)]
 	pub verbose: clap_verbosity_flag::Verbosity<InfoLevel>,
-	/// Path to the input disk image file to attempt to recover data from
+	/// If specified, will read the target disk image file and attempt to carve files from it, using the default or specified configuration file and the default or specified cluster size
 	#[arg(short, long)]
-	pub input: Option<String>,
+	pub image: Option<String>,
 	/// The cluster size that the filesystem that is/was present in the disk image allocated files in, i.e. all valid non-embedded file headers will be found at multiples of this value.
 	/// Alternatively, you can specify "unaligned" or "unknown"
 	#[arg(short, long, default_value = "unknown")]
 	pub cluster_size: ClusterSizeArg,
-	/// The output directory to save recovered file contents in. Defaults to a timestamped directory (startup time) in the current working directory
+	/// The output directory to save recovered file contents in. Defaults to a timestamped directory (processing start time) in the current working directory. Has no effect when processing
+	/// a log
 	#[arg(short, long)]
 	pub out_dir: Option<String>,
-	/// Whether to simply output a log of the discovered file locations instead of carving the file data. Defaults to false. Currently unimplemented
+	/// Whether to simply output a log of the discovered file locations instead of carving the file data. Defaults to false. Has no effect when processing a log
 	#[arg(short, long)]
 	pub skip_carving: bool,
-	/// Path to the TOML config file. Defaults to looking for "Searchlight.toml" in the current working directory
+	/// Path to the TOML config file. Defaults to looking for "Searchlight.toml" in the current working directory. If only processing a log, searchlight makes no attempt to open a config file
 	#[arg(short = 'f', long)]
 	pub config: Option<String>,
 	/// If specified, will read the target log file and carve the files indicated in it. Doesn't require a config. If specified alongside input, will perform both carving operations separately
