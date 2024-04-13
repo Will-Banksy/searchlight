@@ -25,6 +25,7 @@ pub struct Args { // TODO: Add a "quick search" option to only look for headers 
 	#[arg(short = 'f', long)]
 	pub config: Option<String>,
 	/// If specified, will read the target log file and carve the files indicated in it. Doesn't require a config. If specified alongside input, will perform both carving operations separately
+	#[arg(short = 'l', long)]
 	pub carve_log: Option<String>,
 }
 

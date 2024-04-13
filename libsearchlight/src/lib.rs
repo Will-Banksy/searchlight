@@ -3,6 +3,8 @@
 //       for everything else. We can cast safely (panicking if the value doesn't fit) with .try_into().unwrap() (maybe add wrapper .assert_into() since we use .try_into().unwrap() so much
 //       lol)
 
+// TODO: Run cargo clippy and go through and sort out the issues that picks up
+
 pub mod search;
 pub mod error;
 pub mod utils;

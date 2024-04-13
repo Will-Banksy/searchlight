@@ -78,12 +78,17 @@ macro_rules! impl_from_for_variant {
 	};
 }
 
+// TODO: Error design: See https://nrc.github.io/error-docs/error-design/error-type-design.html
+//       Error handling in general needs a bit of an overhaul, as I'm not really sure what I'm doing with it, and error messages are
+//       a bit of a mess. I'm not sure in many places whether I should be returning an error with the necessary information, or
+//       simply logging an error message and returning a more generic error
 #[derive(Debug)]
 pub enum Error {
 	#[cfg(feature = "gpu")]
 	VulkanError(VulkanError),
 	ConfigValidationError,
-	IoError(io::Error), // TODO: Try and compress the amount of errors in IoManagerError (with custom std::io::Errors) and move them into here (see https://nrc.github.io/error-docs/error-design/error-type-design.html)
+	IoError(io::Error),
+	LogReadError(String)
 }
 
 impl Display for Error {
@@ -93,6 +98,7 @@ impl Display for Error {
 			Error::VulkanError(e) => e.to_string(),
 			Error::ConfigValidationError => "Config validation error".to_string(),
 			Error::IoError(e) => e.to_string(),
+			Error::LogReadError(msg) => format!("Log file format error: {msg}")
 		})
 	}
 }

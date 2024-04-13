@@ -1,7 +1,7 @@
 pub mod config;
 mod carve_log;
 
-use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::{self, File}, io::{IoSlice, Write}};
+use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::{self, File}, io::{IoSlice, Write}, path::{Path, PathBuf}};
 
 use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
@@ -17,7 +17,7 @@ pub enum CarveOperationInfo {
 	Image {
 		path: String,
 		config: SearchlightConfig,
-		cluster_size: Option<u64>,
+		cluster_size: Option<u64>, // TODO: Handle a cluster size of 1 (unaligned) better in the validators
 		skip_carving: bool,
 	},
 	FromLog {
@@ -85,7 +85,7 @@ impl Searchlight {
 
 			let file_len = file_len(&mut file)?;
 
-			info!("Opened file {} (size: {} bytes)", &path, file_len);
+			info!("Opened image file {} (size: {} bytes)", &path, file_len);
 
 			(
 				unsafe { MmapOptions::new().map(&file)? },
@@ -144,7 +144,11 @@ impl Searchlight {
 			result_fut = Some(fut);
 
 			if log_enabled!(Level::Info) {
-				eprint!("\rProgress: {:.2}", (i as f32 / num_blocks as f32) * 100.0);
+				// BUG: This is not really correct, as in, we want the progress report to go where the logs are going, without spamming lines, which is why
+				//      we're using \r to repeatedly overwrite the line, but we can only do that to stdout or stderr. By default searchlight (the included
+				//      binary crate) *does* write logs to stderr, but ideally we want libsearchlight to not depend on that behaviour to behave in a sensible
+				//      way
+				eprint!("\rProgress: {:.2}%", (i as f32 / num_blocks as f32) * 100.0);
 			}
 		}
 
@@ -202,9 +206,9 @@ impl Searchlight {
 
 		let mut num_carved_files = 0;
 
-		let mut log = CarveLog::new();
+		let mut log = CarveLog::new(path);
 
-		for pot_file in match_pairs {
+		for pot_file in &match_pairs {
 			let validation = validator.validate(&mmap, &pot_file, &matches, cluster_size as usize, &config);
 
 			debug!("Potential file at {}-{} (type id {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
@@ -220,21 +224,24 @@ impl Searchlight {
 				let start_idx = fragments.iter().min_by_key(|frag| frag.start).unwrap().start; // .map_or(pot_file.start_idx, |frag| frag.start);
 				let end_idx = fragments.iter().max_by_key(|frag| frag.end).unwrap().end; // .map_or(pot_file.end_idx + 1, |frag| frag.end);
 
-				// Create the file with filename <start_idx>-<end_idx>.<extension>
-				let filename = format!("{}/{}/{}-{}.{}",
-					output_dir.as_ref(),
-					validation.validation_type,
-					start_idx,
-					end_idx,
-					pot_file.file_type.extension.clone().unwrap_or("".to_string())
+				// Filename format <start_idx>-<end_idx>.<extension>
+				let filename = format!("{start_idx}-{end_idx}.{}",
+					pot_file.file_type.extension.clone().unwrap_or("dat".to_string())
 				);
 
 				// Only write out the file content if the skip carving flag is false/not present
 				if !skip_carving {
-					// Create validation directory if it doesn't exist
-					fs::create_dir_all(format!("{}/{}", output_dir.as_ref(), validation.validation_type.to_string()))?;
+					// File to be placed at output_dir/validation_type/filename
+					let filepath: PathBuf = [
+						output_dir.as_ref(),
+						&validation.validation_type.to_string(),
+						&filename
+					].iter().collect();
 
-					let mut file = File::create(filename.clone())?;
+					// Create validation directory if it doesn't exist
+					fs::create_dir_all(Path::new(&filepath).parent().unwrap())?;
+
+					let mut file = File::create(filepath)?;
 
 					file.write_vectored(
 						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
@@ -245,10 +252,20 @@ impl Searchlight {
 				log.add_entry(pot_file.file_type.type_id, filename, validation.validation_type, fragments);
 
 				num_carved_files += 1;
+
+				// BUG: If some text is written to stderr or stdout between writes of the progress, then there will be no
+				//      line break between the progress report and the output text. Put a space after the progress % to
+				//      make that look less bad but I'm not sure if this is fixable, in a compelling way anyway
+				if log_enabled!(Level::Info) {
+					eprint!("\rProgress: {:.2}% ", (num_carved_files as f32 / match_pairs.len() as f32) * 100.0);
+				}
 			}
 		}
 
 		if !skip_carving {
+			if log_enabled!(Level::Info) {
+				eprint!("\n");
+			}
 			info!("{} successfully validated files exported to {}", num_carved_files, output_dir.as_ref());
 		}
 
@@ -260,9 +277,42 @@ impl Searchlight {
 	}
 
 	pub fn process_log_file(&mut self, output_dir: impl AsRef<str>, path: &str) -> Result<(), Error> {
-		// TODO: Quite simply, deserialize the log file, read the image file indicated by the log file (need to add that field and other information),
-		//       and carve the necessary data ranges for each file
+		let log_file_str = fs::read_to_string(path)?;
 
-		todo!();
+		let log: CarveLog = serde_json::from_str(&log_file_str).map_err(|e| Error::LogReadError(e.to_string()))?;
+
+		info!("Processing log \"{}\" - carving {} files from image at \"{}\"", path, log.files.len(), log.image_path);
+
+		let mmap = {
+			let mut file = File::open(&log.image_path)?;
+
+			let file_len = file_len(&mut file)?;
+
+			info!("Opened image file {} (size: {} bytes)", &log.image_path, file_len);
+
+			unsafe { MmapOptions::new().map(&file)? }
+		};
+
+		for entry in &log.files {
+			// File to be placed at output_dir/validation_type/filename
+			let filepath: PathBuf = [
+				output_dir.as_ref(),
+				&entry.validation.to_string(),
+				&entry.filename
+			].iter().collect();
+
+			// Create validation directory if it doesn't exist
+			fs::create_dir_all(Path::new(&filepath).parent().unwrap())?;
+
+			let mut file = File::create(filepath).unwrap();
+
+			file.write_vectored(
+				&entry.fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
+			)?;
+		}
+
+		info!("{} files exported to {}", log.files.len(), output_dir.as_ref());
+
+		Ok(())
 	}
 }
