@@ -6,7 +6,7 @@ use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::
 use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
 
-use crate::{error::Error, search::{pairing::{self, pair, MatchPart}, search_common::AcTableBuilder, Search, SearchFuture, Searcher}, searchlight::carve_log::CarveLog, utils::{estimate_cluster_size, file_len, iter::ToGappedWindows}, validation::{DelegatingValidator, FileValidationType, FileValidator}};
+use crate::{error::Error, search::{pairing::{self, pair, MatchPart}, search_common::AcTableBuilder, DelegatingSearcher, SearchFuture, Searcher}, searchlight::carve_log::CarveLog, utils::{estimate_cluster_size, file_len, iter::ToGappedWindows}, validation::{DelegatingValidator, FileValidationType, FileValidator}};
 
 use self::config::SearchlightConfig;
 
@@ -34,15 +34,37 @@ impl CarveOperationInfo {
 	}
 }
 
-/// The main mediator of the library, this struct manages state
+/// The main mediator of the library, this struct manages state and performs carving operations in a configurable manner
 pub struct Searchlight {
 	queue: VecDeque<CarveOperationInfo>,
+	validator: Box<dyn FileValidator>,
+	searcher_factory: Box<dyn Fn(&SearchlightConfig) -> (Box<dyn Searcher>, usize)> // TODO: Probably change this to just directly take the strings for the headers/footers? Or an iterator over them?
 }
 
-impl Searchlight {
-	pub fn new() -> Self {
+impl Default for Searchlight {
+	fn default() -> Self {
 		Searchlight {
-			queue: VecDeque::new()
+			queue: VecDeque::new(),
+			validator: Box::new(DelegatingValidator::new()),
+			searcher_factory: Box::new(|config: &SearchlightConfig| {
+				let ac_table = AcTableBuilder::from_config(&config).build();
+
+				(
+					Box::new(DelegatingSearcher::new(ac_table.clone(), false)) as Box<dyn Searcher>,
+					ac_table.max_pat_len as usize
+				)
+			}) as Box<dyn Fn(&SearchlightConfig) -> (Box<dyn Searcher>, usize)>
+		}
+	}
+}
+
+impl Searchlight  {
+	/// Create a new Searchlight instance with a custom FileValidator impl and a function to generate Searcher impls (along with the required overlap)
+	pub fn new(validator: Box<dyn FileValidator>, searcher_factory: impl Fn(&SearchlightConfig) -> (Box<dyn Searcher>, usize) + 'static) -> Self {
+		Searchlight {
+			queue: VecDeque::new(),
+			validator,
+			searcher_factory: Box::new(searcher_factory)
 		}
 	}
 
@@ -55,6 +77,16 @@ impl Searchlight {
 	/// Add an operation to the queue of operations to be processed
 	pub fn add_operation(&mut self, info: CarveOperationInfo) {
 		self.queue.push_back(info);
+	}
+
+	/// Returns a reference to the internal VecDeque of operations to be performed
+	pub fn operations(&self) -> &VecDeque<CarveOperationInfo> {
+		&self.queue
+	}
+
+	/// Returns a mutable reference to the internal VecDeque of operations to be performed
+	pub fn operations_mut(&mut self) -> &mut VecDeque<CarveOperationInfo> {
+		&mut self.queue
 	}
 
 	/// Processes the file at the front of the queue, returning true if one was processed, and false if there were none to be processed.
@@ -96,12 +128,7 @@ impl Searchlight {
 		assert_eq!(file_len, mmap.len() as u64);
 
 		let (mut searcher, max_pat_len) = {
-			let ac_table = AcTableBuilder::from_config(&config).build();
-
-			(
-				Search::new(ac_table.clone(), false),
-				ac_table.max_pat_len as usize
-			)
+			(self.searcher_factory)(&config)
 		};
 
 		let block_size = searcher.max_search_size().unwrap_or(DEFAULT_BLOCK_SIZE);
@@ -136,9 +163,9 @@ impl Searchlight {
 			}
 			let fut = {
 				if i == 0 {
-					searcher.search(window, 0).unwrap()
+					searcher.search(window, 0, 0).unwrap()
 				} else {
-					searcher.search_next(window, (i * (block_size - max_pat_len)) as u64).unwrap()
+					searcher.search(window, (i * (block_size - max_pat_len)) as u64, max_pat_len).unwrap()
 				}
 			};
 			result_fut = Some(fut);
@@ -147,7 +174,10 @@ impl Searchlight {
 				// BUG: This is not really correct, as in, we want the progress report to go where the logs are going, without spamming lines, which is why
 				//      we're using \r to repeatedly overwrite the line, but we can only do that to stdout or stderr. By default searchlight (the included
 				//      binary crate) *does* write logs to stderr, but ideally we want libsearchlight to not depend on that behaviour to behave in a sensible
-				//      way
+				//      way. Perhaps we just write a log when we hit a milestone? e.g. 25%, 50%, 75%, 100%... Or perhaps just every X amount of seconds, log
+				//      the current progress. *OR*, perhaps, and this might be a better solution, delegate the progress reporting to outside of this function
+				//      - i.e. we provide a way of getting the current progress (perhaps through a channel) and in another thread, the user interface code
+				//      can report it how it likes?
 				eprint!("\rProgress: {:.2}%", (i as f32 / num_blocks as f32) * 100.0);
 			}
 		}
@@ -202,14 +232,12 @@ impl Searchlight {
 		// Create output directory, erroring if it exists already
 		fs::create_dir(output_dir.as_ref())?;
 
-		let validator = DelegatingValidator::new();
-
 		let mut num_carved_files = 0;
 
 		let mut log = CarveLog::new(path);
 
 		for pot_file in &match_pairs {
-			let validation = validator.validate(&mmap, &pot_file, &matches, cluster_size as usize, &config);
+			let validation = self.validator.validate(&mmap, &pot_file, &matches, cluster_size as usize, &config);
 
 			debug!("Potential file at {}-{} (type id {}) validated as: {}, with fragments {:?}", pot_file.start_idx, pot_file.end_idx + 1, pot_file.file_type.type_id, validation.validation_type, validation.fragments);
 

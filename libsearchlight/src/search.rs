@@ -53,16 +53,24 @@ impl SearchFuture {
 }
 
 pub trait Searcher {
-	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error>;
-	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error>;
+	/// Searches a slice, returning a future that can be awaited upon for the result of the search, or an error if one occurred. Searches may be overlapping
+	/// each other (by `overlap` bytes) and so implementors should either not keep state between calls or skip the first `overlap` bytes in their search (overlap
+	/// will only ever be at the start of the slice)
+	fn search(&mut self, data: &[u8], data_offset: u64, overlap: usize) -> Result<SearchFuture, Error>;
+
+	/// The maximum number of bytes that this Searcher implementor can accept at a time for searching, or None if there is no limit. Default implementation returns
+	/// None
+	fn max_search_size(&self) -> Option<usize> {
+		None
+	}
 }
 
-pub struct Search {
+pub struct DelegatingSearcher {
 	search_impl: Box<dyn Searcher>,
 	max_search_size: Option<usize>
 }
 
-impl Search {
+impl DelegatingSearcher {
 	/// Automatically selects
 	///
 	/// The GPU-accelerated PFAC implementation will be chosen by default if available
@@ -72,7 +80,7 @@ impl Search {
 			{
 				match PfacGpu::new(table.clone()) {
 					Ok(pfac_gpu) => {
-						return Search {
+						return DelegatingSearcher {
 							search_impl: Box::new(pfac_gpu),
 							max_search_size: Some(pfac_gpu::INPUT_BUFFER_SIZE as usize)
 						};
@@ -84,21 +92,16 @@ impl Search {
 			}
 		}
 
-		return Search {
+		return DelegatingSearcher {
 			search_impl: Box::new(AcCpu::new(table)),
 			max_search_size: None
 		};
 	}
-
-	pub fn max_search_size(&self) -> Option<usize> {
-		self.max_search_size
-	}
 }
 
-impl Searcher for Search {
-	/// Searches the provided buffer through the used searching implementation
-	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
-		match self.search_impl.search_next(data, data_offset) {
+impl Searcher for DelegatingSearcher {
+	fn search(&mut self, data: &[u8], data_offset: u64, overlap: usize) -> Result<SearchFuture, Error> {
+		match self.search_impl.search(data, data_offset, overlap) {
 			Ok(results) => Ok(results),
 			Err(e) => {
 				Err(Error::from(e))
@@ -106,16 +109,8 @@ impl Searcher for Search {
 		}
 	}
 
-	/// Searches the provided buffer through the used searching implementation
-	///
-	/// This should normally be called on ordered contiguous buffers, one after the other, but does not track progress
-	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
-		match self.search_impl.search(data, data_offset) {
-			Ok(results) => Ok(results),
-			Err(e) => {
-				Err(Error::from(e))
-			}
-		}
+	fn max_search_size(&self) -> Option<usize> {
+		self.max_search_size
 	}
 }
 

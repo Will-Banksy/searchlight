@@ -35,7 +35,7 @@ fn ac_cpu(b: &mut Bencher) {
 		let ac = AcCpu::new(pfac_table);
 		ac
 	}, |mut ac: AcCpu| {
-		let matches = ac.search_next(&search_buf, 0).unwrap().wait().unwrap();
+		let matches = ac.search(&search_buf, 0, 0).unwrap().wait().unwrap();
 		black_box(matches);
 	}, criterion::BatchSize::LargeInput);
 }
@@ -50,9 +50,9 @@ fn pfac_gpu(b: &mut Bencher) {
 			pfac_table.add_pattern(&MatchString::from(*pat));
 		}
 		let pfac_table = pfac_table.build();
-		let ac = PfacGpu::new(pfac_table).unwrap();
-		ac
-	}, |mut ac: PfacGpu| {
+		let ac = PfacGpu::new(pfac_table.clone()).unwrap();
+		(ac, pfac_table.max_pat_len as usize)
+	}, |(mut ac, max_pat_len)| {
 		let mut matches = Vec::new();
 		let mut result_fut: Option<SearchFuture> = None;
 
@@ -63,9 +63,9 @@ fn pfac_gpu(b: &mut Bencher) {
 			}
 			let r = {
 				if i == 0 {
-					ac.search(window, 0).unwrap()
+					ac.search(window, 0, 0).unwrap()
 				} else {
-					ac.search_next(window, (i * 1024 * 1024 - 4) as u64).unwrap()
+					ac.search(window, (i * 1024 * 1024 - 4) as u64, max_pat_len).unwrap()
 				}
 			};
 			result_fut = Some(r);

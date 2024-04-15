@@ -341,11 +341,7 @@ impl PfacGpu {
 }
 
 impl Searcher for PfacGpu {
-	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
-		self.search(data, data_offset)
-	}
-
-	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
+	fn search(&mut self, data: &[u8], data_offset: u64, _overlap: usize) -> Result<SearchFuture, Error> {
 		let input_subbuffer_host = Subbuffer::new(Arc::clone(&self.input_buffer_host));
 		let input_bytes_written = {
 			let mut input_subbuffer_host_wlock = input_subbuffer_host.write().unwrap();
@@ -425,6 +421,10 @@ impl Searcher for PfacGpu {
 			Ok(results)
 		}))
 	}
+
+	fn max_search_size(&self) -> Option<usize> {
+		Some(INPUT_BUFFER_SIZE as usize)
+	}
 }
 
 #[cfg(test)]
@@ -445,7 +445,7 @@ mod test {
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = PfacGpu::new(pfac_table).unwrap();
-		let matches = ac.search(&buffer, 0).unwrap();
+		let matches = ac.search(&buffer, 0, 0).unwrap();
 
 		let expected = vec![
 			Match {
@@ -487,7 +487,7 @@ mod test {
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = PfacGpu::new(pfac_table).unwrap();
-		let matches = ac.search(&buffer, 0).unwrap();
+		let matches = ac.search(&buffer, 0, 0).unwrap();
 
 		let expected = vec![
 			Match {
@@ -519,9 +519,9 @@ mod test {
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = PfacGpu::new(pfac_table).unwrap();
-		let mut matches = ac.search(&buffer[..8], 0).unwrap().wait().unwrap();
-		matches.append(&mut ac.search_next(&buffer[3..10], 3).unwrap().wait().unwrap());
-		matches.append(&mut ac.search_next(&buffer[5..], 5).unwrap().wait().unwrap());
+		let mut matches = ac.search(&buffer[..8], 0, 0).unwrap().wait().unwrap();
+		matches.append(&mut ac.search(&buffer[3..10], 3, 0).unwrap().wait().unwrap());
+		matches.append(&mut ac.search(&buffer[5..], 5, 0).unwrap().wait().unwrap());
 
 		let expected = vec![
 			Match {

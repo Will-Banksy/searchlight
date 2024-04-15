@@ -23,12 +23,11 @@ impl AcCpu {
 }
 
 impl Searcher for AcCpu {
-	fn search_next(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
-		let skip = (self.table.max_pat_len as usize).min(data.len() - 1);
-		self.search(&data[skip..], data_offset + skip as u64)
-	}
+	fn search(&mut self, data: &[u8], data_offset: u64, overlap: usize) -> Result<SearchFuture, Error> {
+		// Account for overlap, since we are keeping state between searches
+		let data = &data[overlap..];
+		let data_offset = data_offset + overlap as u64;
 
-	fn search(&mut self, data: &[u8], data_offset: u64) -> Result<SearchFuture, Error> {
 		let mut matches = Vec::new();
 
 		let mut i = 0;
@@ -93,7 +92,7 @@ mod test {
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = AcCpu::new(pfac_table);
-		let matches = ac.search(&buffer, 0).unwrap();
+		let matches = ac.search(&buffer, 0, 0).unwrap();
 
 		let expected = vec![
 			Match {
@@ -135,7 +134,7 @@ mod test {
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = AcCpu::new(pfac_table);
-		let matches = ac.search(&buffer, 0).unwrap();
+		let matches = ac.search(&buffer, 0, 0).unwrap();
 
 		let expected = vec![
 			Match {
@@ -167,9 +166,9 @@ mod test {
 
 		let pfac_table = AcTableBuilder::new(true).with_pattern(pattern).build();
 		let mut ac = AcCpu::new(pfac_table);
-		let mut matches = ac.search(&buffer[..8], 0).unwrap().wait().unwrap();
-		matches.append(&mut ac.search_next(&buffer[3..10], 3).unwrap().wait().unwrap());
-		matches.append(&mut ac.search_next(&buffer[5..], 5).unwrap().wait().unwrap());
+		let mut matches = ac.search(&buffer[..8], 0, 0).unwrap().wait().unwrap();
+		matches.append(&mut ac.search(&buffer[3..10], 3, ac.table.max_pat_len as usize).unwrap().wait().unwrap());
+		matches.append(&mut ac.search(&buffer[5..], 5, ac.table.max_pat_len as usize).unwrap().wait().unwrap());
 
 		let expected = vec![
 			Match {

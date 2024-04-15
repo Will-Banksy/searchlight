@@ -23,7 +23,7 @@ fn main() {
 
 	debug!("Args: {:?}", args);
 
-	let mut searchlight = Searchlight::new();
+	let mut searchlight = Searchlight::default();
 
 	if let Some(image_path) = args.image {
 		args.config = Some(args.config.unwrap_or("Searchlight.toml".to_string()));
