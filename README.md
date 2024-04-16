@@ -1,5 +1,6 @@
-[![Rust-Linux](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-linux.yml/badge.svg)](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-linux.yml)
-[![Rust-Windows](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-windows.yml/badge.svg)](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-windows.yml)
+[![rust-linux](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-linux.yml/badge.svg)](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-linux.yml)
+[![rust-windows](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-windows.yml/badge.svg)](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-windows.yml)
+[![rust-macos](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-macos.yml/badge.svg)](https://github.com/Will-Banksy/searchlight/actions/workflows/rust-macos.yml)
 
 # Searchlight
 
