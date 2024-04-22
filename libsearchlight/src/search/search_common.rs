@@ -82,7 +82,7 @@ impl AcTableBuilder {
 	pub fn add_pattern(&mut self, pattern: &[u16]) {
 		let mut node_idx = self.start_idx as usize;
 
-		for (i, b)  in pattern.iter().enumerate() {
+		for (i, b) in pattern.iter().enumerate() {
 			if let Some(conn) = self.pat_ir[node_idx].next_paths.iter().find(|conn| conn.value == *b) {
 				node_idx = conn.connecting_to_uuid as usize;
 			} else {
@@ -125,7 +125,7 @@ impl AcTableBuilder {
 }
 
 impl AcTable {
-	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&AcTableElem> {
+	pub fn lookup(&self, curr_state: u32, value: u8) -> Option<&AcTableElem> { // BUG: Same bug as documented in the pfac.comp shader
 		self.table.get(curr_state as usize)?.iter().find(|e| e.value == value as u16 || e.value == MATCH_ALL_VALUE)
 	}
 
@@ -137,9 +137,10 @@ impl AcTable {
 		257
 	}
 
-	/// Returns a 1D vector representation of a 2D array, with 256 columns (width) and a number of rows (height) equal to the number
-	/// of unique states, that can be obtained from calling `num_rows`. To get the next state from the table, where y is the current state
-	/// and x is the current value, lookup column x and row y.
+	/// Returns a 1D vector representation of a 2D array, with 257 columns (width) and a number of
+	/// rows (height) equal to the number of unique states, that can be obtained from calling `num_rows`.
+	/// To get the next state from the table, where y is the current state and x is the current value,
+	/// lookup column x and row y.
 	///
 	/// In the case of '.'s, or match alls, the last column in a row will contain the next state.
 	pub fn encode_indexable(&self) -> Vec<u32> {

@@ -53,13 +53,15 @@ impl SearchFuture {
 }
 
 pub trait Searcher {
-	/// Searches a slice, returning a future that can be awaited upon for the result of the search, or an error if one occurred. Searches may be overlapping
-	/// each other (by `overlap` bytes) and so implementors should either not keep state between calls or skip the first `overlap` bytes in their search (overlap
-	/// will only ever be at the start of the slice)
+	/// Searches a slice, returning a future that can be awaited upon for the result of the search,
+	/// or an error if one occurred. Searches may be overlapping
+	/// each other (by `overlap` bytes) and so implementors should either not keep state between
+	/// calls or skip the first `overlap` bytes in their search (overlap will only ever be at the
+	/// start of the slice)
 	fn search(&mut self, data: &[u8], data_offset: u64, overlap: usize) -> Result<SearchFuture, Error>;
 
-	/// The maximum number of bytes that this Searcher implementor can accept at a time for searching, or None if there is no limit. Default implementation returns
-	/// None
+	/// The maximum number of bytes that this Searcher implementor can accept at a time for searching,
+	/// or None if there is no limit. Default implementation returns None
 	fn max_search_size(&self) -> Option<usize> {
 		None
 	}
@@ -71,9 +73,11 @@ pub struct DelegatingSearcher {
 }
 
 impl DelegatingSearcher {
-	/// Automatically selects
-	///
-	/// The GPU-accelerated PFAC implementation will be chosen by default if available
+	/// Automatically chooses between the GPU-accelerated PFAC or the fallback AC.
+	/// The GPU-accelerated PFAC implementation will be chosen by default if the
+	/// project was compiled with the GPU feature and the a Vulkan implementation
+	/// with the necessary features is available. Pass `prefer_cpu` as true to
+	/// select the fallback AC implementation by default
 	pub fn new(table: AcTable, prefer_cpu: bool) -> Self {
 		if !prefer_cpu {
 			#[cfg(feature = "gpu")]

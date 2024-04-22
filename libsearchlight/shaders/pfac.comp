@@ -73,7 +73,8 @@ void write_match(uint64_t id, uint64_t start_idx, uint64_t end_idx) {
 	idx += 1; // offset from length at start
 
 	uint out_data_len = 1024 * 1024;
-	// If we're overflowing, just don't write a match. Maybe return false, but there's much not point cause the shader can't really do anything about it
+	// If we're overflowing, just don't write a match. Maybe return false, but
+	// there's much not point cause the shader can't really do anything about it
 	if((idx + 5) >= out_data_len) {
 		return;
 	}
@@ -120,11 +121,15 @@ void main() {
 	// 	}
 	// }
 
+	// BUG: I've just realised a somewhat severe problem with my searching approach (at least, on GPU) - If multiple
+	//      patterns match a sequence of file data, only one pattern will ever get matched - Only one of
+	//      [ "\xff\xaa\xff", "\xff\xaa", "\xff.\xff", "\xff." ] will match 0xffaaff, despite them being distinct
+	//      patterns that theoretically should all match
+
 	uint state = 0;
 	uint64_t id = match_id_hash_init();
 
 	for(uint i = 0; (i <= max_pat_len + 1) && ((i + gl_GlobalInvocationID.x) <= extra_info.input_len); i++) {
-		uint idx = gl_LocalInvocationID.x + i;
 		uint gidx = gl_GlobalInvocationID.x + i;
 
 		// uint cache_idx = idx / 4;
@@ -132,7 +137,7 @@ void main() {
 		// uint curr_val = (input_cache[cache_idx] >> ((idx & 3) * 8)) & 0xff;
 		uint curr_val = (in_data[input_idx] >> ((gidx & 3) * 8)) & 0xff;
 
-		// Lookup the next state in the STT
+		// Lookup the next state in the STT, choosing the concrete value match over the one with match-all
 		uvec4 texel = imageLoad(table, ivec2(curr_val, state));
 		uvec4 dot_texel = imageLoad(table, ivec2(256, state));
 		bool choose_dot = texel.r == 0;
@@ -140,16 +145,19 @@ void main() {
 
 		if(next_state == 0xffffffff) {
 			// debugPrintfEXT("LocID %u / GlobID %u: wrote match at LocIdx %u / GlobIdx %u, offset = %u\n", gl_LocalInvocationID.x, gl_GlobalInvocationID.x, idx, gl_GlobalInvocationID.x + i, extra_info.offset);
+			// Found a match
 			uint64_t start_idx = uint64_t(gl_GlobalInvocationID.x + extra_info.offset);
 			uint64_t end_idx = uint64_t(gl_GlobalInvocationID.x + i + extra_info.offset - 1);
 			write_match(id, start_idx, end_idx);
 			break;
 		} else if(next_state != 0) {
+			// Move on to next state
 			state = next_state;
 			id = match_id_hash_add(id, uint(choose_dot) * 0x8000 + uint(!choose_dot) * curr_val);
 			// debugPrintfEXT("Moving on to state = %u, matched at idx = %u\n", next_state, idx);
 		} else {
 			// debugPrintfEXT("Fail @ val = %u, state = %u, idx = %u, cache_idx = %u\n", curr_val, state, idx, cache_idx);
+			// Failure - exit
 			break;
 		}
 	}

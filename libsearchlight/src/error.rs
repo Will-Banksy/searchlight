@@ -78,7 +78,8 @@ macro_rules! impl_from_for_variant {
 	};
 }
 
-// TODO: Error design: See https://nrc.github.io/error-docs/error-design/error-type-design.html
+// TODO: Error design: See https://nrc.github.io/error-docs/error-design/error-type-design.html,
+//       https://blog.burntsushi.net/rust-error-handling/
 //       Error handling in general needs a bit of an overhaul, as I'm not really sure what I'm doing with it, and error messages are
 //       a bit of a mess. I'm not sure in many places whether I should be returning an error with the necessary information, or
 //       simply logging an error message and returning a more generic error

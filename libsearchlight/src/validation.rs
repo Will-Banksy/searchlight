@@ -11,12 +11,14 @@ use crate::{search::{pairing::MatchPair, Match}, searchlight::config::{FileTypeI
 use self::{jpeg::JpegValidator, png::PngValidator, zip::ZipValidator};
 
 pub trait FileValidator {
-	/// Attempts to reconstruct and validate a potential file indicated by a given header-footer pair as belonging to a particular file format, decided per implementor (although there
-	/// is nothing stopping one from making a master validator). This function should return a validation type, indicating the level of validity of the data (see
-	/// FileValidationType variant docs for details) as well as an optional Vec listing all the fragments of the reconstructed file, in order.
+	/// Attempts to reconstruct and validate a potential file indicated by a given header-footer pair as belonging to a particular file format, decided per
+	/// implementor (although there is nothing stopping one from making a master validator). This function should return a validation type, indicating the
+	/// level of validity of the data (see FileValidationType variant docs for details) as well as an optional Vec listing all the fragments of the
+	/// reconstructed file, in order.
 	///
-	/// `cluster_size` is given to aid reconstruction logic. It must not be assumed that cluster_size is any sensible value, as users can pass in anything. Additionally, a cluster size of
-	/// 1 indicates that files in the image aren't allocated on cluster boundaries
+	/// `cluster_size` is given to aid reconstruction logic. It must not be assumed that cluster_size is any sensible value, as users can pass in anything.
+	/// Additionally, a cluster size of 1 indicates that files in the image aren't allocated on cluster boundaries. Similarly, a reference to the whole
+	/// config is given to aid reconstruction
 	fn validate(&self, file_data: &[u8], file_match: &MatchPair, all_matches: &[Match], cluster_size: usize, config: &SearchlightConfig) -> FileValidationInfo;
 }
 
@@ -41,7 +43,7 @@ impl Default for FileValidationInfo {
 #[derive(Serialize, Deserialize, Debug, PartialEq, strum::Display)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
-pub enum FileValidationType {
+pub enum FileValidationType { // BUG: Distinction between "Partial" and "Corrupt"?
 	/// Data is recognised as completely valid for the file format
 	Correct,
 	/// There is some data missing, but what has been recovered is correct

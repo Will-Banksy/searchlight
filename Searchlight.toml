@@ -5,7 +5,7 @@ extension = "jpg"
 headers = [ '\xff\xd8\xff\xe0', '\xff\xd8\xff\xe1' ]
 # footers = [ '\xff\xd9' ]
 max_len = 10485760
-pairing = "next"
+pairing = "last"
 type_id = "jpeg"
 
 [[file_type]]

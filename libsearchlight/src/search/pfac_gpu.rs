@@ -73,8 +73,8 @@ impl PfacGpu {
 		};
 
 		// Initialise vulkan library and create vulkan instance
-		let vklib = VulkanLibrary::new().map_err(Error::from)?;
-		let vkins = Instance::new(vklib, InstanceCreateInfo::default()).map_err(Error::from)?;
+		let vklib = VulkanLibrary::new()?;
+		let vkins = Instance::new(vklib, InstanceCreateInfo::default())?;
 
 		let (vkphys, vkqfidx_comp) = Self::select_device(&vkins, &req_device_extensions).ok_or(VulkanError::NoVulkanImplementations)?;
 
@@ -90,7 +90,7 @@ impl PfacGpu {
 			enabled_extensions: req_device_extensions,
 			enabled_features: req_features,
 			..Default::default()
-		}).map_err(Error::from)?;
+		})?;
 
 		let vkqueue_comp = vkqueues.next().ok_or(VulkanError::NoVulkanImplementations)?;
 
@@ -405,7 +405,7 @@ impl Searcher for PfacGpu {
 			let output_subbuffer_host = Subbuffer::new(output_buffer_host);
 			//let value = &output_subbuffer_host.read().unwrap()[0..((data.len() + 4) * 2)];
 			let output_subbuffer_host_rlock = output_subbuffer_host.read().unwrap();
-			let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap());
+			let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap()); // BUG: Reported results length could be larger than the buffer would allow, which would lead to overflow
 			// println!("Results len: {}", results_len);
 			let results: Vec<Match> = output_subbuffer_host_rlock[4..((results_len as usize * 4 * 6) + 4)]
 				.chunks_exact(4)
