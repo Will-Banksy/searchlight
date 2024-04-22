@@ -12,23 +12,42 @@ files = [
 ]
 filler = "R"
 layout = "Z, 1.1, 2.1, 2.1, 3.1, Z, Z, 1.1, 4.1, R, 5.1"
+# Expect:
+# 2 complete "3.png"
+# 2 complete "7.zip"
+# 1 complete "9.png"
+# 1 complete "files.jpg"
+# 1 complete "g6-1.jpg"
 
 [scenarios.png_fragmented]
 path = "../searchlight/test_data/stoneblock_fragmented.dat"
 files = [
 	{ path = "3.png", fragments = 3 },
-	{ path = "9.png", fragments = 2 }
+	{ path = "9.png", fragments = 2 },
+	{ path = "mars.png", fragments = 4 }
 ]
 filler = "Z"
-layout = "1.1, R, 1.2, R, 2.1, 1.3, 2.2"
+layout = "1.1, R, 1.2, R, 2.1, 1.3, 2.2, 3.1, R, Z, 3.2, 3.1, 3.3, R, 3.4"
+# Expect:
+# 1 complete "3.png"
+# 1 complete "9.png"
+# 1 complete "mars.png"
+# 1 corrupt "mars.png" (3/4 end missing)
 
 [scenarios.jpeg_fragmented]
 path = "../searchlight/test_data/stoneblock_fragmented.dat"
 files = [
-	{ path = "files.jpg", fragments = 3 }
+	{ path = "files.jpg", fragments = 3 },
+	{ path = "g6-1.jpg", fragments = 5 },
+	{ path = "turtle.jpg", fragments = 2 }
 ]
 filler = "Z"
-layout = "1.1, R, 1.2, Z, 1.3, R, 1.1, 1.3"
+layout = "1.1, Z, 1.2, Z, 1.3, R, 1.1, 1.3, 2.1, R, 2.2, Z, 1.2, Z, 2.3, 2.4, R, 2.5, 3.1, Z, 3.2"
+# Expect:
+# 1 complete "files.jpg"
+# 1 corrupt "files.jpg" (missing middle)
+# 1 corrupt "g6-1.jpg" (part of "files.jpg" in middle)
+# 1 complete "turtle.jpg"
 
 [scenarios.zip_fragmented]
 path = "../searchlight/test_data/stoneblock_fragmented.dat"
@@ -38,4 +57,10 @@ files = [
 	{ path = "multi.zip", fragments = 3 }
 ]
 filler = "Z"
-layout = "1.1, Z, 2.1, 1.2, 2.2, 3.1, R, 3.2, R, 3.3"
+layout = "1.1, Z, 2.1, 1.2, 2.2, 3.1, R, 3.2, R, 3.3, 3.1, 3.3"
+# Expect:
+# 1 complete "7.zip"
+# 1 complete "rm.zip"
+# 1 complete "multi.zip"
+# 1 corrupt "multi.zip" (missing middle)
+# Note: We actually get 2 corrupt "multi.zip"s cause they interfere with each other through the header matches

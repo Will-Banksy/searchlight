@@ -1,5 +1,5 @@
 const ENTROPY_THRESHOLD: f32 = 0.6;
-const FF00_THRESHOLD: u32 = 1;
+const FF00_THRESHOLD: u32 = 0;
 
 /// Calculate the Shannon entropy of a slice
 fn shannon_entropy(data: &[u8]) -> f32 {
@@ -54,7 +54,7 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 				}
 				val @ 0xd0..=0xd7 => {
 					if let Some(curr_rst) = curr_rst_marker {
-						if val == curr_rst + 1 {
+						if val == curr_rst + 1 || val == 0xd0 && curr_rst == 0xd7 {
 							curr_rst_marker = Some(val);
 						} else {
 							rst_marker_ordering_valid = false;

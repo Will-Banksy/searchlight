@@ -57,7 +57,11 @@
 					"kind": "bin"
 				}
 			},
-			"args": [],
+			"args": [
+				"-vv",
+				"-i",
+				"test_data/stoneblock_fragmented.dat"
+			],
 			"cwd": "${workspaceFolder}"
 		},
 		{

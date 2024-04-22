@@ -10,7 +10,7 @@ TODO: Write more of README
 
 ## Scope
 
-This tool will focus on carving non-fragmented and in-order fragmented files, as this makes up the most significant proportion of files according to a study in 2021 by Vincent van der Meer, Hugo Jonker and Jeroen van den Bos. Although the framework won't mandate a specific carving/reconstruction strategy or focus.
+This tool will focus on carving non-fragmented and in-order fragmented files, as this makes up the most significant proportion of files (Vincent van der Meer, Hugo Jonker and Jeroen van den Bos, 2021). Although the framework won't mandate a specific carving/reconstruction strategy or focus.
 
 Additionally, the following file formats are in scope (more may be added, it is unlikely any will be removed):
 
@@ -52,7 +52,7 @@ See [Benchmarking.md](Benchmarking.md) for benchmarks & performance notes.
 
 In the test_data/corpus directory are some sample files for testing the tool with, and there is a config file [Stoneblock.toml](Stoneblock.toml) for usage with my test image generation tool [stoneblock](https://github.com/Will-Banksy/stoneblock) that uses these test files to build a test image.
 
-3.png, 7.zip, 9.png, and g6-1.jpg are from or derived from data provided by Digital Corpora (Garfinkel *et al*, 2009), in particular the disk image "[nps-2009-canon2](https://corp.digitalcorpora.org/corpora/drives/nps-2009-canon2)".
+3.png, 7.zip, 9.png, g6-1.jpg, multi.zip, mars.jpg, and turtle.jpg are from or (partially) derived from data provided by Digital Corpora (Garfinkel *et al*, 2009), in particular the disk image "[nps-2009-canon2](https://corp.digitalcorpora.org/corpora/drives/nps-2009-canon2)" and the latter two are from the [govdocs1](https://digitalcorpora.org/corpora/file-corpora/files/) dataset.
 
 All other files are authored by me.
 
