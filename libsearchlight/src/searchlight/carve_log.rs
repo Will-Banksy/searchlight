@@ -43,7 +43,7 @@ impl CarveLog {
 		let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
 		self.serialize(&mut ser).unwrap(); // This shouldn't fail... right??
 
-		let filename: PathBuf = [ dir_path, "log.txt" ].into_iter().collect();
+		let filename: PathBuf = [ dir_path, "log.json" ].into_iter().collect();
 
 		fs::write(filename, buf)
 	}

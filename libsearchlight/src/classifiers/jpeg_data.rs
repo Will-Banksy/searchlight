@@ -41,14 +41,18 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 	let entropy = shannon_entropy(cluster);
 
 	let mut count_ff00 = 0;
-	let mut first_ffxx = None; // Contains the first instance of a byte sequence that is invalid in a JPEG scan or terminates a JPEG scan, if one has been encountered
+	// Contains the first instance of a byte sequence that is invalid in a JPEG scan or terminates a JPEG scan,
+	// if one has been encountered
+	let mut first_ffxx = None;
 	let mut curr_rst_marker = None;
-	let mut rst_marker_ordering_valid = true; // RST markers have to be encountered in sequence
+	// RST markers have to be encountered in sequence
+	let mut rst_marker_ordering_valid = true;
 	for i in 0..(cluster.len() - 1) {
 		if cluster[i] == 0xff {
 			match cluster[i + 1] {
 				0x00 => {
-					if first_ffxx.is_none() { // If we've encountered an invalid sequence or terminator, don't increment ff00 counts
+					// If we've encountered an invalid sequence or terminator, don't increment ff00 counts
+					if first_ffxx.is_none() {
 						count_ff00 += 1;
 					}
 				}

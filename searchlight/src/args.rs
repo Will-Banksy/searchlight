@@ -3,9 +3,11 @@ use std::str::FromStr;
 use clap::Parser;
 use clap_verbosity_flag::InfoLevel;
 
+// TODO: Add a "quick search" option to only look for headers at the start of clusters... but still need to find footers...
+// TODO: Add in-place carving with FUSE/WinFsp
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
-pub struct Args { // TODO: Add a "quick search" option to only look for headers at the start of clusters... but still need to find footers...
+pub struct Args {
 	#[command(flatten)]
 	pub verbose: clap_verbosity_flag::Verbosity<InfoLevel>,
 	/// If specified, will read the target disk image file and attempt to carve files from it, using the default or specified configuration file and the default or specified cluster size

@@ -29,6 +29,8 @@ impl JpegValidator {
 
 	/// Attempt to reconstruct JPEG scan data, assuming that all fragments are in-order, by looping through clusters and attempting to classify them
 	/// as either JPEG scan data or not
+	// TODO: We could maybe try and tackle out-of-order JPEG fragmentations using the reset marker orderings (if present)
+	//       although apparently they are only present in ~12% of JPEGs (Uzun and Sencar, 2020, https://doi.org/10.1109/TIFS.2019.2953382)
 	fn reconstruct_scan_data(file_data: &[u8], scan_marker_idx: usize, cluster_size: usize, config: &SearchlightConfig) -> JpegScanReconstructionInfo {
 		let fragmentation_start = utils::next_multiple_of(scan_marker_idx + 1, cluster_size) as usize;
 
@@ -103,7 +105,9 @@ impl FileValidator for JpegValidator {
 					i += 2;
 					continue;
 				} else if file_data[i + 1] == JPEG_EOI {
-					fragments.push(i..(i + 2 + cluster_size)); // NOTE: We're carving an extra cluster here which isn't necessary for the image but often metadata is stored past EOI so this will catch (some of) that
+					// NOTE: We're carving an extra cluster here which isn't necessary for the image but often metadata is stored past EOI so this will catch (some of) that
+					// BUG: This doesn't check file bounds
+					fragments.push(i..(i + 2 + cluster_size));
 					utils::simplify_ranges(&mut fragments);
 
 					// Return that this is a complete file with length start - i

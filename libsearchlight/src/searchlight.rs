@@ -26,18 +26,18 @@ pub enum CarveOperationInfo {
 }
 
 impl CarveOperationInfo {
-	pub fn path(&self) -> String {
+	pub fn path(&self) -> &str {
 		match &self {
 			CarveOperationInfo::Image { path, .. } => path,
 			CarveOperationInfo::FromLog { path } => path,
-		}.to_string()
+		}
 	}
 }
 
 /// The main mediator of the library, this struct manages state and performs carving operations in a configurable manner
 pub struct Searchlight {
 	queue: VecDeque<CarveOperationInfo>,
-	validator: Box<dyn FileValidator>,
+	validator: Box<dyn FileValidator>, // TODO: Can I actually just use generics instead of trait objects? Won't need the traits to be object safe then, so maybe can remove the fuckery for searcher_factory and declare a constructor directly in the trait?
 	searcher_factory: Box<dyn Fn(&SearchlightConfig) -> (Box<dyn Searcher>, usize)> // TODO: Probably change this to just directly take the strings for the headers/footers? Or an iterator over them?
 }
 
@@ -271,6 +271,7 @@ impl Searchlight  {
 
 					let mut file = File::create(filepath)?;
 
+					// TODO: Writing to lots of files does seem like a perfect use case for io_uring... but windows... and other platforms...
 					file.write_vectored(
 						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
 					)?;
@@ -299,7 +300,7 @@ impl Searchlight  {
 
 		log.write(output_dir.as_ref())?;
 
-		info!("Carve log written to {}/log.txt", output_dir.as_ref());
+		info!("Carve log written to {}/log.json", output_dir.as_ref());
 
 		Ok(())
 	}
