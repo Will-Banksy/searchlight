@@ -1,7 +1,10 @@
 pub mod config;
 mod carve_log;
 
-use std::{arch::x86_64::{_mm_prefetch, _MM_HINT_T0}, collections::VecDeque, fs::{self, File}, io::{IoSlice, Write}, path::{Path, PathBuf}};
+use std::{collections::VecDeque, fs::{self, File}, io::{IoSlice, Write}, path::{Path, PathBuf}};
+
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
 
 use log::{debug, info, log_enabled, trace, Level};
 use memmap::MmapOptions;
@@ -271,10 +274,14 @@ impl Searchlight  {
 
 					let mut file = File::create(filepath)?;
 
-					// TODO: Writing to lots of files does seem like a perfect use case for io_uring... but windows... and other platforms...
-					file.write_vectored(
-						&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
-					)?;
+					// PERF: Writing to lots of files does seem like a perfect use case for io_uring... but windows... and other platforms...
+					// FIXME: write_vectored may not write everything
+					// file.write_vectored(
+					// 	&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
+					// )?;
+					for frag in &fragments {
+						file.write_all(&mmap[frag.start..frag.end])?;
+					}
 				}
 
 				// Add entry to log

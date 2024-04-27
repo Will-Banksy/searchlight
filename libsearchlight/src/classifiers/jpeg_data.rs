@@ -1,5 +1,6 @@
 const ENTROPY_THRESHOLD: f32 = 0.6;
-const FF00_THRESHOLD: u32 = 0;
+const FF00_THRESHOLD: u32 = 0; // Larger values seem to cause problems, especially for smaller cluster sizes
+const FF00_CERTAINTY_THRESHOLD: u32 = 4;
 
 /// Calculate the Shannon entropy of a slice
 fn shannon_entropy(data: &[u8]) -> f32 {
@@ -47,6 +48,7 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 	let mut curr_rst_marker = None;
 	// RST markers have to be encountered in sequence
 	let mut rst_marker_ordering_valid = true;
+	let mut found_invalid_marker = false;
 	for i in 0..(cluster.len() - 1) {
 		if cluster[i] == 0xff {
 			match cluster[i + 1] {
@@ -57,14 +59,22 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 					}
 				}
 				val @ 0xd0..=0xd7 => {
-					if let Some(curr_rst) = curr_rst_marker {
-						if val == curr_rst + 1 || val == 0xd0 && curr_rst == 0xd7 {
-							curr_rst_marker = Some(val);
+					if first_ffxx.is_none() { // We probably don't want to base any decisions on anything that happens after another marker, as it could well be the EOI. Maybe track that
+						if let Some(curr_rst) = curr_rst_marker {
+							if val == curr_rst + 1 || val == 0xd0 && curr_rst == 0xd7 {
+								curr_rst_marker = Some(val);
+							} else {
+								rst_marker_ordering_valid = false;
+							}
 						} else {
-							rst_marker_ordering_valid = false;
+							curr_rst_marker = Some(val);
 						}
-					} else {
-						curr_rst_marker = Some(val);
+					}
+				}
+				0x01..=0xbf => { // Reserved markers, shouldn't appear (at least, before another valid one). https://stackoverflow.com/a/53062155/11009247
+					if first_ffxx.is_none() {
+						found_invalid_marker = true;
+						break;
 					}
 				}
 				_ => {
@@ -77,9 +87,9 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 	}
 
 	let entropy_valid = entropy > ENTROPY_THRESHOLD;
-	let contents_valid = count_ff00 >= FF00_THRESHOLD && rst_marker_ordering_valid;
+	let contents_valid = count_ff00 >= FF00_THRESHOLD && rst_marker_ordering_valid && !found_invalid_marker;
 
-	let is_likely_jpeg = entropy_valid && contents_valid;
+	let is_likely_jpeg = (entropy_valid || count_ff00 >= FF00_CERTAINTY_THRESHOLD) && contents_valid;
 
 	(
 		is_likely_jpeg,
