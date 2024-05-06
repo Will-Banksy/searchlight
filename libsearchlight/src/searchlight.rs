@@ -274,7 +274,8 @@ impl Searchlight  {
 
 					let mut file = File::create(filepath)?;
 
-					// PERF: Writing to lots of files does seem like a perfect use case for io_uring... but windows... and other platforms...
+					// PERF: Writing to lots of files does seem like a perfect use case for io_uring... but windows... and other platforms... Maybe https://crates.io/crates/nuclei ?
+					//       At the very least, write_vectored should be more performant than repeated write_all calls, but does not seem to behave properly on windows, and nevertheless doesn't guarantee everything is written
 					// FIXME: write_vectored may not write everything
 					// file.write_vectored(
 					// 	&fragments.iter().map(|frag| IoSlice::new(&mmap[frag.start..frag.end])).collect::<Vec<IoSlice>>()
@@ -291,7 +292,7 @@ impl Searchlight  {
 
 				// BUG: If some text is written to stderr or stdout between writes of the progress, then there will be no
 				//      line break between the progress report and the output text. Put a space after the progress % to
-				//      make that look less bad but I'm not sure if this is fixable, in a compelling way anyway
+				//      make that look less bad but I'm not sure if this is fixable, in a compelling way anyway. Well apart from externalising the progress reporting
 				if log_enabled!(Level::Info) {
 					eprint!("\rProgress: {:.2}% ", (num_carved_files as f32 / match_pairs.len() as f32) * 100.0);
 				}

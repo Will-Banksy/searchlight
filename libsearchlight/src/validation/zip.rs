@@ -469,13 +469,16 @@ impl FileValidator for ZipValidator {
 					cd.push(record);
 				} else {
 					warn!("ZIP: Central directory file header signature incorrect, skipping entry. This is likely a sign of corruption or fragmentation (central directory at {:#0x})", central_directory_idx);
+					i += 1;
 				}
 			}
 
 			cd
 		};
 
-		let zip_header_matches: Vec<&Match> = all_matches.iter().filter(|m| m.id == ZIP_LOCAL_FILE_HEADER_SIG_ID).collect();
+		let zip_header_matches: Vec<&Match> = all_matches.iter().filter(|m| {
+			m.id == ZIP_LOCAL_FILE_HEADER_SIG_ID && (m.start_idx as usize) < central_directory_idx
+		}).collect();
 
 		let local_file_headers = {
 			let mut lfhs = Vec::new();

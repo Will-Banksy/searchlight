@@ -119,12 +119,13 @@ pub fn generate_fragmentations(cluster_size: usize, fragmentation_range: Range<u
 
 	let mut res = Vec::new();
 
+	// PERF: This is still quite hot, any obvious optimisations I can do?
 	while gap_idx <= clusters.len() - gap_len {
 		// Get all the clusters that are not in the gap, and simplify
-		let mut file_clusters: Vec<Range<usize>> = clusters.iter().enumerate().filter(|(i, _)| *i < gap_idx || *i >= (gap_idx + gap_len)).map(|(_, c)| c.clone()).collect();
-		simplify_ranges(&mut file_clusters);
+		res.push(Vec::with_capacity(num_file_clusters));
 
-		res.push(file_clusters);
+		res.last_mut().unwrap().extend(clusters.iter().enumerate().filter(|(i, _)| *i < gap_idx || *i >= (gap_idx + gap_len)).map(|(_, c)| c.clone()));
+		simplify_ranges(res.last_mut().unwrap());
 
 		gap_idx += 1;
 	}
@@ -134,16 +135,19 @@ pub fn generate_fragmentations(cluster_size: usize, fragmentation_range: Range<u
 
 /// Takes a vec of assumed in-order, non-overlapping ranges, and where the end of a range is equal to the start of the next range, merges
 /// the two ranges into one
-pub fn simplify_ranges<T>(ranges: &mut Vec<Range<T>>) where T: PartialEq {
+// PERF: Changed to Vec::swap_remove with a sort after all removes are done instead of Vec::remove - Needs some testing if this actually helps performance
+pub fn simplify_ranges<T>(ranges: &mut Vec<Range<T>>) where T: PartialEq + Ord + Copy {
 	let mut i = 1;
 	while i < ranges.len() {
 		if ranges[i - 1].end == ranges[i].start {
-			ranges[i - 1].end = ranges.remove(i).end;
+			ranges[i - 1].end = ranges.swap_remove(i).end;
 			i -= 1;
 		}
 
 		i += 1;
 	}
+
+	ranges.sort_unstable_by_key(|r| r.start);
 }
 
 #[cfg(test)]

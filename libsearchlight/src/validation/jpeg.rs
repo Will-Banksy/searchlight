@@ -31,6 +31,7 @@ impl JpegValidator {
 	/// as either JPEG scan data or not
 	// TODO: We could maybe try and tackle out-of-order JPEG fragmentations using the reset marker orderings (if present)
 	//       although apparently they are only present in ~12% of JPEGs (Uzun and Sencar, 2020, https://doi.org/10.1109/TIFS.2019.2953382)
+	// TODO: Ali and Mohamad (2021) manage to tackle intertwined JPEGs using the Coherence of Euclidean Distance (CED) to detect sharp changes in the image https://doi.org/10.1016/j.jksuci.2018.12.007
 	fn reconstruct_scan_data(file_data: &[u8], scan_marker_idx: usize, cluster_size: usize, config: &SearchlightConfig) -> JpegScanReconstructionInfo {
 		let fragmentation_start = utils::next_multiple_of(scan_marker_idx + 1, cluster_size) as usize;
 

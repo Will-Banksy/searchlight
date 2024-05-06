@@ -3,23 +3,17 @@ const FF00_THRESHOLD: u32 = 0; // Larger values seem to cause problems, especial
 const FF00_CERTAINTY_THRESHOLD: u32 = 4;
 
 /// Calculate the Shannon entropy of a slice
-fn shannon_entropy(data: &[u8]) -> f32 {
+fn shannon_entropy(counts: &[u32], data_len: usize) -> f32 {
 	// Can't calculate the entropy without data so return 0. Would panic otherwise
-	if data.len() == 0 {
+	if data_len == 0 {
 		return 0.0;
-	}
-
-	// Count the values
-	let mut counts = [0u32; 256];
-	for &byte in data {
-		counts[byte as usize] += 1;
 	}
 
 	// And calculate the entropy
 	let mut entropy = 0.0;
-	for count in counts {
+	for &count in counts {
 		if count != 0 {
-			let probability = (count as f32) / (data.len() as f32);
+			let probability = (count as f32) / (data_len as f32);
 			entropy -= probability * probability.log2();
 		}
 	}
@@ -37,9 +31,8 @@ fn shannon_entropy(data: &[u8]) -> f32 {
 /// is likely JPEG scan data, and the second contains the index of the likely end of the JPEG scan data
 /// (if it is likely scan data), i.e. the first 0xff that is not followed by 0xd0..=0xd7 or 0x00
 pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
-	// PERF: Could optimise this by both calculating the entropy and doing the analysis in one pass. Perhaps move the count
-	//       calculations out of the shannon_entropy fn
-	let entropy = shannon_entropy(cluster);
+	// Initialise the counts for each byte
+	let mut counts = [0u32; 256];
 
 	let mut count_ff00 = 0;
 	// Contains the first instance of a byte sequence that is invalid in a JPEG scan or terminates a JPEG scan,
@@ -49,7 +42,11 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 	// RST markers have to be encountered in sequence
 	let mut rst_marker_ordering_valid = true;
 	let mut found_invalid_marker = false;
+	let mut bytes_counted = 0;
 	for i in 0..(cluster.len() - 1) {
+		counts[cluster[i] as usize] += 1;
+		bytes_counted += 1;
+
 		if cluster[i] == 0xff {
 			match cluster[i + 1] {
 				0x00 => {
@@ -85,6 +82,8 @@ pub fn jpeg_data(cluster: &[u8]) -> (bool, Option<usize>) {
 			}
 		}
 	}
+
+	let entropy = shannon_entropy(&counts, bytes_counted);
 
 	let entropy_valid = entropy > ENTROPY_THRESHOLD;
 	let contents_valid = count_ff00 >= FF00_THRESHOLD && rst_marker_ordering_valid && !found_invalid_marker;

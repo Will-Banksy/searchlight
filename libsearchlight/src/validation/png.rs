@@ -336,6 +336,7 @@ impl PngValidator {
 
 impl FileValidator for PngValidator {
 	// Written using https://www.w3.org/TR/png-3/
+	// TODO: Could try reconstructing out-of-order fragmentations by finding a chunk type and testing X clusters after this chunk type and Y clusters after that chunk type (where X+Y is the number of clusters needed)
 	fn validate(&self, file_data: &[u8], file_match: &MatchPair, _all_matches: &[Match], cluster_size: usize, config: &SearchlightConfig) -> FileValidationInfo {
 		let mut chunk_idx = file_match.start_idx as usize + 8;
 
