@@ -308,7 +308,7 @@ impl Searchlight  {
 
 		log.write(output_dir.as_ref())?;
 
-		info!("Carve log written to {}/log.json", output_dir.as_ref());
+		info!("Carve log written to {}{}log.json", output_dir.as_ref(), std::path::MAIN_SEPARATOR_STR);
 
 		Ok(())
 	}
