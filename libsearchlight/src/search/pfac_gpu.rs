@@ -38,7 +38,7 @@ mod pfac_shaders {
 	}
 }
 
-use std::{sync::Arc, ops::DerefMut, time::Duration, io::Write};
+use std::{io::Write, mem::size_of, ops::DerefMut, sync::Arc, time::Duration};
 
 use log::info;
 use vulkano::{instance::{Instance, InstanceCreateInfo}, device::{DeviceExtensions, QueueFlags, physical::{PhysicalDevice, PhysicalDeviceType}, Features, Device, DeviceCreateInfo, QueueCreateInfo, Queue}, VulkanLibrary, memory::{allocator::{StandardMemoryAllocator, MemoryAllocator, AllocationCreateInfo, MemoryTypeFilter, MemoryAllocatePreference, DeviceLayout}, DeviceAlignment}, buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer}, NonZeroDeviceSize, pipeline::{PipelineShaderStageCreateInfo, PipelineLayout, layout::{PipelineDescriptorSetLayoutCreateInfo, PushConstantRange, PipelineLayoutCreateFlags}, ComputePipeline, compute::ComputePipelineCreateInfo, Pipeline, PipelineBindPoint}, descriptor_set::{allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, PersistentDescriptorSet, WriteDescriptorSet, layout::{DescriptorSetLayoutCreateInfo, DescriptorSetLayoutBinding, DescriptorType}}, image::{Image, ImageCreateInfo, ImageType, ImageUsage, view::ImageView}, format::Format, command_buffer::{allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo, CopyBufferInfo}, sync::{self, GpuFuture}, shader::ShaderStage};
@@ -405,7 +405,7 @@ impl Searcher for PfacGpu {
 			let output_subbuffer_host = Subbuffer::new(output_buffer_host);
 			//let value = &output_subbuffer_host.read().unwrap()[0..((data.len() + 4) * 2)];
 			let output_subbuffer_host_rlock = output_subbuffer_host.read().unwrap();
-			let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap()); // BUG: Reported results length could be larger than the buffer would allow, which would lead to overflow
+			let results_len = u32::from_ne_bytes(output_subbuffer_host_rlock[0..4].try_into().unwrap()).clamp(0, OUTPUT_BUFFER_SIZE as u32 / size_of::<Match>() as u32);
 			// println!("Results len: {}", results_len);
 			let results: Vec<Match> = output_subbuffer_host_rlock[4..((results_len as usize * 4 * 6) + 4)]
 				.chunks_exact(4)

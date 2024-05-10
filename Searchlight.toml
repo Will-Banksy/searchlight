@@ -1,4 +1,4 @@
-max_reconstruction_search_len = 0xfffffffffffffff
+max_reconstruction_search_len = 67108864
 
 [[file_type]]
 extension = "jpg"
@@ -20,7 +20,7 @@ type_id = "png"
 extension = "zip"
 headers = [ '\x50\x4B\x03\x04' ]
 footers = [ '\x50\x4B\x05\x06..................' ]
-# max_len = 10485760
+max_len = 10485760
 requires_footer = true
 pairing = "next"
 type_id = "zip"
